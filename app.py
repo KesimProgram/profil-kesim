@@ -2,16 +2,46 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from scipy.optimize import milp, LinearConstraint, Bounds
+import json
+import os
+
+# --- KAYIT SİSTEMİ ALTYAPISI ---
+KAYIT_DOSYASI = "kayitlar.json"
+
+def kayitlari_yukle():
+    if os.path.exists(KAYIT_DOSYASI):
+        with open(KAYIT_DOSYASI, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return {}
+
+def kayit_ekle(isim, data):
+    kayitlar = kayitlari_yukle()
+    kayitlar[isim] = data
+    with open(KAYIT_DOSYASI, "w", encoding="utf-8") as f:
+        json.dump(kayitlar, f, ensure_ascii=False, indent=4)
+
+def kayit_sil(isim):
+    kayitlar = kayitlari_yukle()
+    if isim in kayitlar:
+        del kayitlar[isim]
+        with open(KAYIT_DOSYASI, "w", encoding="utf-8") as f:
+            json.dump(kayitlar, f, ensure_ascii=False, indent=4)
 
 # --- SAYFA AYARLARI ---
 st.set_page_config(page_title="Profil Kesim Optimizasyonu", layout="wide")
 st.title("✂️ Profil Kesim Optimizasyonu")
 
-# --- YAN MENÜ (AYARLAR) ---
+# Session State Başlatma (Tablo verisi için)
+if 'df' not in st.session_state:
+    st.session_state.df = pd.DataFrame({"Boy (cm)": [0.0], "Adet": [0]})
+
+# --- YAN MENÜ (AYARLAR VE KAYITLAR) ---
 with st.sidebar:
     st.header("⚙️ Ayarlar")
     L_input = st.number_input("Profil Uzunluğu (cm)", value=600.0, step=1.0)
-    testere = st.number_input("Testere Payı (cm)", value=0.4, step=0.1)
+    
+    # İSTEK 1: Testere payı varsayılan 0.5 yapıldı
+    testere = st.number_input("Testere Payı (cm)", value=0.5, step=0.1)
     
     st.divider()
     st.subheader("Fire Kuralı (Opsiyonel)")
@@ -22,14 +52,48 @@ with st.sidebar:
     else:
         min_fire, max_fire = 0.0, 0.0
 
+    st.divider()
+    
+    # İSTEK 2: Kayıt Sistemi Arayüzü
+    st.header("💾 Kayıtlı İşler")
+    
+    mevcut_kayitlar = kayitlari_yukle()
+    if mevcut_kayitlar:
+        secilen_kayit = st.selectbox("Kayıtlı Bir Liste Seç:", ["Seçiniz..."] + list(mevcut_kayitlar.keys()))
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("📂 Yükle", use_container_width=True) and secilen_kayit != "Seçiniz...":
+                st.session_state.df = pd.DataFrame(mevcut_kayitlar[secilen_kayit])
+                st.rerun()
+        with col2:
+            if st.button("🗑️ Sil", use_container_width=True) and secilen_kayit != "Seçiniz...":
+                kayit_sil(secilen_kayit)
+                st.success(f"{secilen_kayit} silindi!")
+                st.rerun()
+    else:
+        st.info("Henüz kayıtlı listen yok.")
+        
+    st.subheader("Mevcut Listeyi Kaydet")
+    kayit_ismi = st.text_input("Bu işe bir isim ver (Örn: Siyah Kulplar)")
+    if st.button("💾 Kaydet", use_container_width=True):
+        if kayit_ismi:
+            # Sadece içi boş olmayan, düzgün girilmiş satırları kaydet
+            df_gecerli = st.session_state.df[(st.session_state.df["Boy (cm)"] > 0) & (st.session_state.df["Adet"] > 0)]
+            kayit_ekle(kayit_ismi, df_gecerli.to_dict('records'))
+            st.success("Liste başarıyla kaydedildi!")
+            st.rerun()
+        else:
+            st.warning("Lütfen kaydetmek için bir isim yaz.")
+
 # --- ANA EKRAN (SİPARİŞ TABLOSU) ---
 st.subheader("📋 Sipariş Listesi")
 st.info("Tabloya yeni satır eklemek için en alt satıra tıklayıp ölçü girebilirsin.")
 
-if 'df' not in st.session_state:
-    st.session_state.df = pd.DataFrame({"Boy (cm)": [0.0], "Adet": [0]})
-
+# Tabloyu ekranda göster ve değişiklikleri anında df_giris değişkenine al
 df_giris = st.data_editor(st.session_state.df, num_rows="dynamic", use_container_width=True)
+
+# Kullanıcının ekranda yaptığı değişiklikleri anında hafızaya kaydet (Tablo silinmesin diye)
+st.session_state.df = df_giris
 
 # --- HESAPLAMA MOTORU ---
 if st.button("🚀 Optimizasyonu Başlat", type="primary"):
@@ -77,17 +141,16 @@ if st.button("🚀 Optimizasyonu Başlat", type="primary"):
                 integrality = np.ones_like(c)
                 bounds = Bounds(0, np.inf)
                 
-                # TIKANMAYI ÖNLEME: 60 Saniye Süre Sınırı!
+                # TIKANMAYI ÖNLEME: 60 Saniye Süre Sınırı
                 res = milp(c=c, constraints=constraints_tam, integrality=integrality, bounds=bounds, options={'time_limit': 60})
                 
                 cozum_gecerli = False
                 
-                # 60 saniye dolsa bile mantıklı bir sonuç bulduysa onu kabul et
                 if res.success or (hasattr(res, 'x') and res.x is not None):
                     cozum_gecerli = True
                     cozum = np.round(res.x).astype(int)
                 else:
-                    # Bulamazsa B planı olan çok hızlı modele geç
+                    # B planı
                     constraints_esnek = LinearConstraint(A_eq, b_eq, np.inf)
                     res_esnek = milp(c=c, constraints=constraints_esnek, integrality=integrality, bounds=bounds)
                     if res_esnek.success:
