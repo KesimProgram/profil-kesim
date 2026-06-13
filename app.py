@@ -31,16 +31,14 @@ def kayit_sil(isim):
 st.set_page_config(page_title="Profil Kesim Optimizasyonu", layout="wide")
 st.title("✂️ Profil Kesim Optimizasyonu")
 
-# Session State Başlatma (Tablo verisi için)
+# Tablonun SADECE ilk açılışta veya Yükle denildiğinde değişmesi için ayar
 if 'df' not in st.session_state:
     st.session_state.df = pd.DataFrame({"Boy (cm)": [0.0], "Adet": [0]})
 
-# --- YAN MENÜ (AYARLAR VE KAYITLAR) ---
+# --- YAN MENÜ (AYARLAR VE YÜKLEME) ---
 with st.sidebar:
     st.header("⚙️ Ayarlar")
     L_input = st.number_input("Profil Uzunluğu (cm)", value=600.0, step=1.0)
-    
-    # İSTEK 1: Testere payı varsayılan 0.5 yapıldı
     testere = st.number_input("Testere Payı (cm)", value=0.5, step=0.1)
     
     st.divider()
@@ -54,15 +52,14 @@ with st.sidebar:
 
     st.divider()
     
-    # İSTEK 2: Kayıt Sistemi Arayüzü
-    st.header("💾 Kayıtlı İşler")
-    
+    st.header("📂 Kayıtlı İşler")
     mevcut_kayitlar = kayitlari_yukle()
     if mevcut_kayitlar:
         secilen_kayit = st.selectbox("Kayıtlı Bir Liste Seç:", ["Seçiniz..."] + list(mevcut_kayitlar.keys()))
         col1, col2 = st.columns(2)
         with col1:
             if st.button("📂 Yükle", use_container_width=True) and secilen_kayit != "Seçiniz...":
+                # Listeyi yüklediğimiz an tabloyu yeniliyoruz
                 st.session_state.df = pd.DataFrame(mevcut_kayitlar[secilen_kayit])
                 st.rerun()
         with col2:
@@ -72,28 +69,30 @@ with st.sidebar:
                 st.rerun()
     else:
         st.info("Henüz kayıtlı listen yok.")
-        
-    st.subheader("Mevcut Listeyi Kaydet")
-    kayit_ismi = st.text_input("Bu işe bir isim ver (Örn: Siyah Kulplar)")
-    if st.button("💾 Kaydet", use_container_width=True):
-        if kayit_ismi:
-            # Sadece içi boş olmayan, düzgün girilmiş satırları kaydet
-            df_gecerli = st.session_state.df[(st.session_state.df["Boy (cm)"] > 0) & (st.session_state.df["Adet"] > 0)]
-            kayit_ekle(kayit_ismi, df_gecerli.to_dict('records'))
-            st.success("Liste başarıyla kaydedildi!")
-            st.rerun()
-        else:
-            st.warning("Lütfen kaydetmek için bir isim yaz.")
 
 # --- ANA EKRAN (SİPARİŞ TABLOSU) ---
 st.subheader("📋 Sipariş Listesi")
 st.info("Tabloya yeni satır eklemek için en alt satıra tıklayıp ölçü girebilirsin.")
 
-# Tabloyu ekranda göster ve değişiklikleri anında df_giris değişkenine al
+# Tablo çizimi: Artık her tuşa bastığında kendi kendini sıfırlayıp silmeyecek!
 df_giris = st.data_editor(st.session_state.df, num_rows="dynamic", use_container_width=True)
 
-# Kullanıcının ekranda yaptığı değişiklikleri anında hafızaya kaydet (Tablo silinmesin diye)
-st.session_state.df = df_giris
+# --- KAYDETME BÖLÜMÜ (Tablonun Altına Taşındı) ---
+st.write("---")
+col_isim, col_kaydet = st.columns([3, 1])
+with col_isim:
+    kayit_ismi = st.text_input("Bu listeyi kaydetmek istersen bir isim yaz (Örn: Siyah Kulplar)")
+with col_kaydet:
+    st.write("") # Hizalama boşluğu
+    st.write("")
+    if st.button("💾 Kaydet", use_container_width=True):
+        if kayit_ismi:
+            df_gecerli = df_giris[(df_giris["Boy (cm)"] > 0) & (df_giris["Adet"] > 0)]
+            kayit_ekle(kayit_ismi, df_gecerli.to_dict('records'))
+            st.success("Liste kaydedildi! Sol menüden ulaşabilirsin.")
+        else:
+            st.warning("Lütfen kaydetmek için bir isim yaz.")
+st.write("---")
 
 # --- HESAPLAMA MOTORU ---
 if st.button("🚀 Optimizasyonu Başlat", type="primary"):
