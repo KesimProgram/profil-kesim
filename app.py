@@ -3,29 +3,80 @@ import pandas as pd
 import numpy as np
 from scipy.optimize import milp, LinearConstraint, Bounds
 import json
-import os
+import gspread
+from google.oauth2.service_account import Credentials
 
-# --- KAPSAMLI KAYIT SİSTEMİ ALTYAPISI ---
-KAYIT_DOSYASI = "kayitlar_profil.json"
+# --- BULUT (GOOGLE SHEETS) VERİTABANI MOTORU ---
+def google_sheets_baglan():
+    try:
+        # Streamlit Secrets'tan şifreleri çekiyoruz
+        creds_dict = dict(st.secrets["gcp_service_account"])
+        # JSON içindeki \n kaçış karakterlerini düzelterek Google'a sunuyoruz
+        creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
+        
+        scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+        creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
+        client = gspread.authorize(creds)
+        
+        sheet_id = st.secrets["spreadsheet_id"]
+        return client.open_by_key(sheet_id).sheet1
+    except Exception as e:
+        st.error(f"⚠️ Bulut veritabanına bağlanılamadı: {e}")
+        return None
 
 def kayitlari_yukle():
-    if os.path.exists(KAYIT_DOSYASI):
-        with open(KAYIT_DOSYASI, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {}
+    worksheet = google_sheets_baglan()
+    if worksheet is None:
+        return {}
+    
+    try:
+        records = worksheet.get_all_records()
+        kayitlar = {}
+        for r in records:
+            # Satırlardaki string veriyi tekrar Python nesnesine çeviriyoruz
+            kayitlar[r["Isim"]] = {
+                "list": json.loads(r["List"]),
+                "settings": json.loads(r["Settings"]),
+                "result": json.loads(r["Result"]) if r["Result"] else None
+            }
+        return kayitlar
+    except:
+        return {}
 
 def kayit_ekle(isim, data):
-    kayitlar = kayitlari_yukle()
-    kayitlar[isim] = data
-    with open(KAYIT_DOSYASI, "w", encoding="utf-8") as f:
-        json.dump(kayitlar, f, ensure_ascii=False, indent=4)
+    worksheet = google_sheets_baglan()
+    if worksheet is None:
+        return
+    
+    try:
+        # Eğer aynı isimde eski bir kayıt varsa üzerine yazmak için önce eskisini siliyoruz
+        records = worksheet.get_all_records()
+        for idx, r in enumerate(records):
+            if r["Isim"] == isim:
+                worksheet.delete_rows(idx + 2) # Başlık satırından dolayı +2
+                
+        # Verileri Google Sheets'e tek satır olarak ekle
+        worksheet.append_row([
+            isim,
+            json.dumps(data["list"], ensure_ascii=False),
+            json.dumps(data["settings"], ensure_ascii=False),
+            json.dumps(data["result"], ensure_ascii=False) if data["result"] else ""
+        ])
+    except Exception as e:
+        st.error(f"💾 Buluta kaydedilirken hata oluştu: {e}")
 
 def kayit_sil(isim):
-    kayitlar = kayitlari_yukle()
-    if isim in kayitlar:
-        del kayitlar[isim]
-        with open(KAYIT_DOSYASI, "w", encoding="utf-8") as f:
-            json.dump(kayitlar, f, ensure_ascii=False, indent=4)
+    worksheet = google_sheets_baglan()
+    if worksheet is None:
+        return
+    try:
+        records = worksheet.get_all_records()
+        for idx, r in enumerate(records):
+            if r["Isim"] == isim:
+                worksheet.delete_rows(idx + 2)
+                break
+    except:
+        pass
 
 # --- REÇETE GÖSTERİM FONKSİYONU ---
 def receteyi_ekrana_bas(toplam_profil, kesim_listesi, kural_aktif, min_fire, max_fire):
@@ -70,7 +121,7 @@ def receteyi_ekrana_bas(toplam_profil, kesim_listesi, kural_aktif, min_fire, max
             durum = "⚠️ Ara Fire (Mecburi)"
             st.warning(f"- {str_baslik}: 👉 {detay_metni} *(Kalan Fire: {fire} cm - {durum})*")
 
-# --- HESAPLAMA MOTORU (MERKEZİ FONKSİYON) ---
+# --- HESAPLAMA MOTORU ---
 def optimizasyon_yap(df_temiz, L, testere, kural_aktif, min_fire, max_fire):
     uzunluklar = df_temiz["Boy (cm)"].tolist()
     gercek_uzunluklar = [boy + testere for boy in uzunluklar]
@@ -144,7 +195,7 @@ def optimizasyon_yap(df_temiz, L, testere, kural_aktif, min_fire, max_fire):
 
 # --- SAYFA AYARLARI ---
 st.set_page_config(page_title="Profil Kesim Optimizasyonu", layout="wide")
-st.title("✂️ Profil Kesim Optimizasyonu")
+st.title("✂️ Profil Kesim Optimizasyonu Bulut Sürümü")
 
 # --- ARACI HAFIZA SİSTEMİ ---
 varsayilan_ayarlar = [
@@ -173,7 +224,7 @@ def kategori_tetikleyici():
         st.session_state.set_min = 5.0
         st.session_state.set_max = 30.0
 
-# --- YAN MENÜ (AYARLAR, YÜKLEME VE GÜVENLİK) ---
+# --- YAN MENÜ (YENİ BULUT MOTORU) ---
 with st.sidebar:
     st.header("⚙️ İş ve Tezgâh Ayarları")
     
@@ -201,8 +252,9 @@ with st.sidebar:
     st.session_state.set_max = max_fire
 
     st.divider()
-    st.header("📂 Kayıtlı Kesim İşleri")
-    mevcut_kayitlar = kayitlari_yukle()
+    st.header("☁️ Google Buluttan Yükle")
+    mevcut_kayitlar = kayitlari_yukle() # Veriler doğrudan Google Sheets'ten canlı çekilir!
+    
     if mevcut_kayitlar:
         secilen_kayit = st.selectbox("Kayıtlı Komple İş Seç:", ["Seçiniz..."] + list(mevcut_kayitlar.keys()))
         col1, col2 = st.columns(2)
@@ -231,42 +283,9 @@ with st.sidebar:
                 st.success(f"{secilen_kayit} silindi!")
                 st.rerun()
     else:
-        st.info("Henüz kayıtlı komple işin yok.")
+        st.info("Bulutta henüz kayıtlı iş bulunamadı.")
 
-    # --- GEÇMİŞ YEDEKLERİ YÖNETME PANELİ (YENİ EK ÖZELLİK) ---
-    st.divider()
-    st.header("🚨 Güvenlik ve Geri Yükleme")
-    
-    # YEDEK GERİ YÜKLEME KUTUSU
-    uploaded_backup = st.file_uploader("📤 Yedek Dosyası Yükle (.json)", type=["json"])
-    if uploaded_backup is not None:
-        try:
-            yedek_data = json.load(uploaded_backup)
-            if isinstance(yedek_data, dict):
-                with open(KAYIT_DOSYASI, "w", encoding="utf-8") as f:
-                    json.dump(yedek_data, f, ensure_ascii=False, indent=4)
-                st.success("✅ Yedek başarıyla geri yüklendi! Sayfa yenileniyor...")
-                st.rerun()
-            else:
-                st.error("Geçersiz yedek dosyası formatı!")
-        except Exception as e:
-            st.error("Yedek yüklenirken hata oluştu.")
-
-    # İNDİRME BUTONU
-    if mevcut_kayitlar:
-        try:
-            json_string = json.dumps(mevcut_kayitlar, ensure_ascii=False, indent=4)
-            st.download_button(
-                label="📥 Mevcut Kayıtları Bilgisayara İndir",
-                data=json_string,
-                file_name="profil_kesim_eski_kayitlar.json",
-                mime="application/json",
-                use_container_width=True
-            )
-        except:
-            pass
-
-# --- ANA EKRAN (SİPARİŞ TABLOSU) ---
+# --- ANA EKRAN ---
 col_baslik, col_temizle = st.columns([3, 1])
 with col_baslik:
     st.subheader(f"📋 Sipariş Listesi ({st.session_state.set_kat} Modu)")
@@ -283,9 +302,7 @@ with col_temizle:
 
 df_giris = st.data_editor(st.session_state.df_profil, num_rows="dynamic", use_container_width=True, key=f"profil_tablosu_{st.session_state.tablo_anahtari}")
 
-# --- İŞLEM BUTONLARI ---
 st.write("---")
-
 col_hesap, col_bos = st.columns([1, 3])
 with col_hesap:
     if st.button("🚀 Sadece Hesapla (Kaydetmeden)", type="primary", use_container_width=True):
@@ -312,7 +329,7 @@ with col_hesap:
 
 col_isim, col_kaydet = st.columns([3, 1])
 with col_isim:
-    kayit_ismi = st.text_input("Bu işi kaydetmek için isim ver (Mevcut hesabı aynen kaydeder):", value=st.session_state.saved_name_val)
+    kayit_ismi = st.text_input("Bu işi kaydetmek için isim ver (Doğrudan Google Buluta kilitler):", value=st.session_state.saved_name_val)
     st.session_state.saved_name_val = kayit_ismi
 with col_kaydet:
     st.write(""); st.write("")
@@ -334,7 +351,7 @@ with col_kaydet:
                 if st.session_state.hesaplanan_ayarlar != guncel_ayarlar:
                     degisti_mi = True
 
-                with st.spinner("Kaydediliyor..."):
+                with st.spinner("Google Buluta gönderiliyor..."):
                     if degisti_mi or st.session_state.aktif_hesap_sonucu is None:
                         sonuc, hata = optimizasyon_yap(
                             df_gecerli, st.session_state.set_L, st.session_state.set_testere, 
@@ -356,12 +373,11 @@ with col_kaydet:
                             "result": sonuc
                         }
                         kayit_ekle(kayit_ismi, paket_veri)
-                        st.success("✅ Tablo, ayarlar ve reçete başarıyla hafızaya donduruldu!")
+                        st.success("✅ Tebrikler! Veriler kalıcı olarak Google Drive bulutuna kilitlendi!")
         else:
             st.warning("Lütfen kaydetmek için bir isim yaz.")
 st.write("---")
 
-# --- KAYITLI YA DA AKTİF HESABI GÖSTERME ---
 if st.session_state.aktif_hesap_sonucu is not None:
     receteyi_ekrana_bas(
         st.session_state.aktif_hesap_sonucu["toplam_profil"],
