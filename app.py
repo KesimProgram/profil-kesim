@@ -43,7 +43,6 @@ def kayitlari_yukle():
         
         kayitlar = {}
         for satir in satirlar[1:]:
-            # 🚨 KRİTİK: Google Sheets'in hücre kırpma hatasını önlemek için satırı 4 elemana tamamla!
             while len(satir) < 4:
                 satir.append("")
                 
@@ -61,8 +60,7 @@ def kayitlari_yukle():
                     "settings": json.loads(s_veri) if s_veri else {},
                     "result": json.loads(res_veri) if res_veri else None
                 }
-            except Exception as row_error:
-                # Eğer tek bir satır bozuksa tüm uygulamayı kilitlemesin, o satırı atlasın
+            except:
                 continue
                 
         return kayitlar
@@ -120,7 +118,19 @@ def kayit_sil(isim):
 st.set_page_config(page_title="Profil Kesim Optimizasyonu", layout="wide")
 st.title("✂️ Profil Kesim Optimizasyonu Kesintisiz Bulut Sürümü")
 
-# --- ARACI HAFIZA SİSTEMİ ---
+# --- ARACI VE BULUT HAFIZA YAPILANDIRMASI (KOTA DOSTU) ---
+if 'mevcut_kayitlar' not in st.session_state:
+    st.session_state.mevcut_kayitlar = None
+if 'bulut_yenile' not in st.session_state:
+    st.session_state.bulut_yenile = True
+
+# Sadece gerektiğinde (Açılışta, Kayıtta, Silmede) Google'dan canlı veri çekilir
+if st.session_state.bulut_yenile or st.session_state.mevcut_kayitlar is None:
+    st.session_state.mevcut_kayitlar = kayitlari_yukle()
+    st.session_state.bulut_yenile = False
+
+mevcut_kayitlar = st.session_state.mevcut_kayitlar
+
 varsayilan_ayarlar = [
     ("set_kat", "Profil"), ("set_L", 600.0), ("set_testere", 0.5), 
     ("set_kural", True), ("set_min", 5.0), ("set_max", 30.0)
@@ -291,7 +301,6 @@ with st.sidebar:
 
     st.divider()
     st.header("☁️ Google Buluttan Yükle")
-    mevcut_kayitlar = kayitlari_yukle() 
     
     if mevcut_kayitlar:
         secilen_kayit = st.selectbox("Kayıtlı Komple İş Seç:", ["Seçiniz..."] + list(mevcut_kayitlar.keys()))
@@ -318,6 +327,7 @@ with st.sidebar:
         with col2:
             if st.button("🗑️ Sil", use_container_width=True) and secilen_kayit != "Seçiniz...":
                 kayit_sil(secilen_kayit)
+                st.session_state.bulut_yenile = True # Bulutu bir sonraki tetiklemede yenilemeye zorla
                 st.success(f"{secilen_kayit} silindi!")
                 st.rerun()
     else:
@@ -411,6 +421,7 @@ with col_kaydet:
                             "result": sonuc
                         }
                         kayit_ekle(kayit_ismi, paket_veri)
+                        st.session_state.bulut_yenile = True # Yeni kayıt geldi, bulut hafızasını güncellemeye zorla
                         st.success("✅ Tebrikler! Veriler kalıcı olarak Google Drive bulutuna kilitlendi!")
                         st.rerun()
         else:
