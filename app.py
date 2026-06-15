@@ -6,12 +6,10 @@ import json
 import gspread
 from google.oauth2.service_account import Credentials
 
-# --- BULUT (GOOGLE SHEETS) VERİTABANI MOTORU ---
+# --- BULUT (GOOGLE SHEETS) ULTRA-ROBUST VERİTABANI MOTORU ---
 def google_sheets_baglan():
     try:
-        # Streamlit Secrets'tan şifreleri çekiyoruz
         creds_dict = dict(st.secrets["gcp_service_account"])
-        # JSON içindeki \n kaçış karakterlerini düzelterek Google'a sunuyoruz
         creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
         
         scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
@@ -30,17 +28,46 @@ def kayitlari_yukle():
         return {}
     
     try:
-        records = worksheet.get_all_records()
+        # Sayfadaki tüm satırları ham olarak çekiyoruz (get_all_values hata riskini sıfırlar)
+        satirlar = worksheet.get_all_values()
+        
+        # Eğer sayfa tamamen boşsa başlık şablonunu otomatik oluştur
+        if not satirlar or len(satirlar) == 0:
+            worksheet.append_row(["Isim", "List", "Settings", "Result"])
+            return {}
+            
+        # İlk satırdaki başlıkları temizleyip küçük harfe çeviriyoruz (Hata payı kalmasın diye)
+        basliklar = [str(b).strip().lower() for b in satirlar[0]]
+        
+        # Başlıkların hangi sütunda olduğunu dinamik buluyoruz
+        idx_isim = basliklar.index("isim") if "isim" in basliklar else 0
+        idx_list = basliklar.index("list") if "list" in basliklar else 1
+        idx_settings = basliklar.index("settings") if "settings" in basliklar else 2
+        idx_result = basliklar.index("result") if "result" in basliklar else 3
+        
         kayitlar = {}
-        for r in records:
-            # Satırlardaki string veriyi tekrar Python nesnesine çeviriyoruz
-            kayitlar[r["Isim"]] = {
-                "list": json.loads(r["List"]),
-                "settings": json.loads(r["Settings"]),
-                "result": json.loads(r["Result"]) if r["Result"] else None
+        # Veri satırlarını oku (1. satırdan sonrasını)
+        for satir in satirlar[1:]:
+            if len(satir) <= max(idx_isim, idx_list, idx_settings, idx_result):
+                continue
+            
+            isim = satir[idx_isim].strip()
+            if not isim:
+                continue
+                
+            l_veri = satir[idx_list].strip()
+            s_veri = satir[idx_settings].strip()
+            res_veri = satir[idx_result].strip() if idx_result < len(satir) else ""
+            
+            kayitlar[isim] = {
+                "list": json.loads(l_veri) if l_veri else [],
+                "settings": json.loads(s_veri) if s_veri else {},
+                "result": json.loads(res_veri) if res_veri else None
             }
         return kayitlar
-    except:
+    except Exception as e:
+        # Arka planda bir pürüz çıkarsa sol menüde bize canlı canlı rapor etsin
+        st.sidebar.error(f"🔍 Bulut Okuma Hatası: {e}")
         return {}
 
 def kayit_ekle(isim, data):
@@ -49,15 +76,23 @@ def kayit_ekle(isim, data):
         return
     
     try:
-        # Eğer aynı isimde eski bir kayıt varsa üzerine yazmak için önce eskisini siliyoruz
-        records = worksheet.get_all_records()
-        for idx, r in enumerate(records):
-            if r["Isim"] == isim:
-                worksheet.delete_rows(idx + 2) # Başlık satırından dolayı +2
+        satirlar = worksheet.get_all_values()
+        if not satirlar:
+            worksheet.append_row(["Isim", "List", "Settings", "Result"])
+            satirlar = [["Isim", "List", "Settings", "Result"]]
+            
+        basliklar = [str(b).strip().lower() for b in satirlar[0]]
+        idx_isim = basliklar.index("isim") if "isim" in basliklar else 0
+        
+        # Aynı isimde eski kayıt varsa buluttan üzerine yazmak için bulup siliyoruz
+        for idx, satir in enumerate(satirlar[1:]):
+            if len(satir) > idx_isim and satir[idx_isim].strip() == str(isim):
+                worksheet.delete_rows(idx + 2) # Başlık satırı + indis kayması = +2
+                break
                 
-        # Verileri Google Sheets'e tek satır olarak ekle
+        # Yeni kaydı ekle
         worksheet.append_row([
-            isim,
+            str(isim),
             json.dumps(data["list"], ensure_ascii=False),
             json.dumps(data["settings"], ensure_ascii=False),
             json.dumps(data["result"], ensure_ascii=False) if data["result"] else ""
@@ -70,13 +105,49 @@ def kayit_sil(isim):
     if worksheet is None:
         return
     try:
-        records = worksheet.get_all_records()
-        for idx, r in enumerate(records):
-            if r["Isim"] == isim:
+        satirlar = worksheet.get_all_values()
+        if not satirlar:
+            return
+        basliklar = [str(b).strip().lower() for b in satirlar[0]]
+        idx_isim = basliklar.index("isim") if "isim" in basliklar else 0
+        
+        for idx, satir in enumerate(satirlar[1:]):
+            if len(satir) > idx_isim and satir[idx_isim].strip() == str(isim):
                 worksheet.delete_rows(idx + 2)
                 break
-    except:
-        pass
+    except Exception as e:
+        st.sidebar.error(f"❌ Silme Hatası: {e}")
+
+# --- SAYFA AYARLARI ---
+st.set_page_config(page_title="Profil Kesim Optimizasyonu", layout="wide")
+st.title("✂️ Profil Kesim Optimizasyonu Kesintisiz Bulut Sürümü")
+
+# --- ARACI HAFIZA SİSTEMİ ---
+varsayilan_ayarlar = [
+    ("set_kat", "Profil"), ("set_L", 600.0), ("set_testere", 0.5), 
+    ("set_kural", True), ("set_min", 5.0), ("set_max", 30.0)
+]
+for key, default in varsayilan_ayarlar:
+    if key not in st.session_state:
+        st.session_state[key] = default
+
+if 'df_profil' not in st.session_state: st.session_state.df_profil = pd.DataFrame({"Boy (cm)": [0.0], "Adet": [0]})
+if 'aktif_hesap_sonucu' not in st.session_state: st.session_state.aktif_hesap_sonucu = None
+if 'tablo_anahtari' not in st.session_state: st.session_state.tablo_anahtari = 0
+if 'hesaplanan_df' not in st.session_state: st.session_state.hesaplanan_df = None
+if 'hesaplanan_ayarlar' not in st.session_state: st.session_state.hesaplanan_ayarlar = None
+if 'saved_name_val' not in st.session_state: st.session_state.saved_name_val = ""
+
+def kategori_tetikleyici():
+    st.session_state.set_kat = st.session_state.kategori_widget
+    if st.session_state.set_kat == "Kulplar":
+        st.session_state.set_L = 500.0
+        st.session_state.set_min = 5.0
+        st.session_state.set_max = 70.0
+    else:
+        st.session_state.set_L = 600.0
+        st.session_state.set_min = 5.0
+        st.session_state.set_max = 30.0
 
 # --- REÇETE GÖSTERİM FONKSİYONU ---
 def receteyi_ekrana_bas(toplam_profil, kesim_listesi, kural_aktif, min_fire, max_fire):
@@ -193,38 +264,7 @@ def optimizasyon_yap(df_temiz, L, testere, kural_aktif, min_fire, max_fire):
     else:
         return None, "Matematiksel bir çözüm bulunamadı. Lütfen sipariş adetlerini kontrol edin."
 
-# --- SAYFA AYARLARI ---
-st.set_page_config(page_title="Profil Kesim Optimizasyonu", layout="wide")
-st.title("✂️ Profil Kesim Optimizasyonu Bulut Sürümü")
-
-# --- ARACI HAFIZA SİSTEMİ ---
-varsayilan_ayarlar = [
-    ("set_kat", "Profil"), ("set_L", 600.0), ("set_testere", 0.5), 
-    ("set_kural", True), ("set_min", 5.0), ("set_max", 30.0)
-]
-for key, default in varsayilan_ayarlar:
-    if key not in st.session_state:
-        st.session_state[key] = default
-
-if 'df_profil' not in st.session_state: st.session_state.df_profil = pd.DataFrame({"Boy (cm)": [0.0], "Adet": [0]})
-if 'aktif_hesap_sonucu' not in st.session_state: st.session_state.aktif_hesap_sonucu = None
-if 'tablo_anahtari' not in st.session_state: st.session_state.tablo_anahtari = 0
-if 'hesaplanan_df' not in st.session_state: st.session_state.hesaplanan_df = None
-if 'hesaplanan_ayarlar' not in st.session_state: st.session_state.hesaplanan_ayarlar = None
-if 'saved_name_val' not in st.session_state: st.session_state.saved_name_val = ""
-
-def kategori_tetikleyici():
-    st.session_state.set_kat = st.session_state.kategori_widget
-    if st.session_state.set_kat == "Kulplar":
-        st.session_state.set_L = 500.0
-        st.session_state.set_min = 5.0
-        st.session_state.set_max = 70.0
-    else:
-        st.session_state.set_L = 600.0
-        st.session_state.set_min = 5.0
-        st.session_state.set_max = 30.0
-
-# --- YAN MENÜ (YENİ BULUT MOTORU) ---
+# --- YAN MENÜ (AYARLAR VE YÜKLEME) ---
 with st.sidebar:
     st.header("⚙️ İş ve Tezgâh Ayarları")
     
@@ -253,7 +293,7 @@ with st.sidebar:
 
     st.divider()
     st.header("☁️ Google Buluttan Yükle")
-    mevcut_kayitlar = kayitlari_yukle() # Veriler doğrudan Google Sheets'ten canlı çekilir!
+    mevcut_kayitlar = kayitlari_yukle() 
     
     if mevcut_kayitlar:
         secilen_kayit = st.selectbox("Kayıtlı Komple İş Seç:", ["Seçiniz..."] + list(mevcut_kayitlar.keys()))
@@ -374,6 +414,7 @@ with col_kaydet:
                         }
                         kayit_ekle(kayit_ismi, paket_veri)
                         st.success("✅ Tebrikler! Veriler kalıcı olarak Google Drive bulutuna kilitlendi!")
+                        st.rerun()
         else:
             st.warning("Lütfen kaydetmek için bir isim yaz.")
 st.write("---")
