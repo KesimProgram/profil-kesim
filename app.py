@@ -28,45 +28,45 @@ def kayitlari_yukle():
         return {}
     
     try:
-        # Sayfadaki tüm satırları ham olarak çekiyoruz (get_all_values hata riskini sıfırlar)
         satirlar = worksheet.get_all_values()
         
-        # Eğer sayfa tamamen boşsa başlık şablonunu otomatik oluştur
         if not satirlar or len(satirlar) == 0:
             worksheet.append_row(["Isim", "List", "Settings", "Result"])
             return {}
             
-        # İlk satırdaki başlıkları temizleyip küçük harfe çeviriyoruz (Hata payı kalmasın diye)
         basliklar = [str(b).strip().lower() for b in satirlar[0]]
         
-        # Başlıkların hangi sütunda olduğunu dinamik buluyoruz
         idx_isim = basliklar.index("isim") if "isim" in basliklar else 0
         idx_list = basliklar.index("list") if "list" in basliklar else 1
         idx_settings = basliklar.index("settings") if "settings" in basliklar else 2
         idx_result = basliklar.index("result") if "result" in basliklar else 3
         
         kayitlar = {}
-        # Veri satırlarını oku (1. satırdan sonrasını)
         for satir in satirlar[1:]:
-            if len(satir) <= max(idx_isim, idx_list, idx_settings, idx_result):
-                continue
-            
+            # 🚨 KRİTİK: Google Sheets'in hücre kırpma hatasını önlemek için satırı 4 elemana tamamla!
+            while len(satir) < 4:
+                satir.append("")
+                
             isim = satir[idx_isim].strip()
             if not isim:
                 continue
                 
-            l_veri = satir[idx_list].strip()
-            s_veri = satir[idx_settings].strip()
-            res_veri = satir[idx_result].strip() if idx_result < len(satir) else ""
-            
-            kayitlar[isim] = {
-                "list": json.loads(l_veri) if l_veri else [],
-                "settings": json.loads(s_veri) if s_veri else {},
-                "result": json.loads(res_veri) if res_veri else None
-            }
+            try:
+                l_veri = satir[idx_list].strip()
+                s_veri = satir[idx_settings].strip()
+                res_veri = satir[idx_result].strip()
+                
+                kayitlar[isim] = {
+                    "list": json.loads(l_veri) if l_veri else [],
+                    "settings": json.loads(s_veri) if s_veri else {},
+                    "result": json.loads(res_veri) if res_veri else None
+                }
+            except Exception as row_error:
+                # Eğer tek bir satır bozuksa tüm uygulamayı kilitlemesin, o satırı atlasın
+                continue
+                
         return kayitlar
     except Exception as e:
-        # Arka planda bir pürüz çıkarsa sol menüde bize canlı canlı rapor etsin
         st.sidebar.error(f"🔍 Bulut Okuma Hatası: {e}")
         return {}
 
@@ -84,13 +84,11 @@ def kayit_ekle(isim, data):
         basliklar = [str(b).strip().lower() for b in satirlar[0]]
         idx_isim = basliklar.index("isim") if "isim" in basliklar else 0
         
-        # Aynı isimde eski kayıt varsa buluttan üzerine yazmak için bulup siliyoruz
         for idx, satir in enumerate(satirlar[1:]):
             if len(satir) > idx_isim and satir[idx_isim].strip() == str(isim):
-                worksheet.delete_rows(idx + 2) # Başlık satırı + indis kayması = +2
+                worksheet.delete_rows(idx + 2)
                 break
                 
-        # Yeni kaydı ekle
         worksheet.append_row([
             str(isim),
             json.dumps(data["list"], ensure_ascii=False),
@@ -264,7 +262,7 @@ def optimizasyon_yap(df_temiz, L, testere, kural_aktif, min_fire, max_fire):
     else:
         return None, "Matematiksel bir çözüm bulunamadı. Lütfen sipariş adetlerini kontrol edin."
 
-# --- YAN MENÜ (AYARLAR VE YÜKLEME) ---
+# --- YAN MENÜ ---
 with st.sidebar:
     st.header("⚙️ İş ve Tezgâh Ayarları")
     
