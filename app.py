@@ -173,7 +173,7 @@ def kategori_tetikleyici():
         st.session_state.set_min = 5.0
         st.session_state.set_max = 30.0
 
-# --- YAN MENÜ (AYARLAR, YÜKLEME VE YEDEKLER) ---
+# --- YAN MENÜ (AYARLAR, YÜKLEME VE GÜVENLİK) ---
 with st.sidebar:
     st.header("⚙️ İş ve Tezgâh Ayarları")
     
@@ -233,25 +233,38 @@ with st.sidebar:
     else:
         st.info("Henüz kayıtlı komple işin yok.")
 
-    # --- KRİTİK: GÜVENLİ YEDEK İNDİRME BUTONU (YENİ EKLENDİ) ---
+    # --- GEÇMİŞ YEDEKLERİ YÖNETME PANELİ (YENİ EK ÖZELLİK) ---
     st.divider()
-    st.header("🚨 Güvenlik Duvarı")
+    st.header("🚨 Güvenlik ve Geri Yükleme")
+    
+    # YEDEK GERİ YÜKLEME KUTUSU
+    uploaded_backup = st.file_uploader("📤 Yedek Dosyası Yükle (.json)", type=["json"])
+    if uploaded_backup is not None:
+        try:
+            yedek_data = json.load(uploaded_backup)
+            if isinstance(yedek_data, dict):
+                with open(KAYIT_DOSYASI, "w", encoding="utf-8") as f:
+                    json.dump(yedek_data, f, ensure_ascii=False, indent=4)
+                st.success("✅ Yedek başarıyla geri yüklendi! Sayfa yenileniyor...")
+                st.rerun()
+            else:
+                st.error("Geçersiz yedek dosyası formatı!")
+        except Exception as e:
+            st.error("Yedek yüklenirken hata oluştu.")
+
+    # İNDİRME BUTONU
     if mevcut_kayitlar:
         try:
             json_string = json.dumps(mevcut_kayitlar, ensure_ascii=False, indent=4)
             st.download_button(
-                label="📥 Tüm Kayıtları Dosya Olarak İndir (Yedek Al)",
+                label="📥 Mevcut Kayıtları Bilgisayara İndir",
                 data=json_string,
                 file_name="profil_kesim_eski_kayitlar.json",
                 mime="application/json",
-                use_container_width=True,
-                type="secondary"
+                use_container_width=True
             )
-            st.caption("💡 Üstteki butona basarak mevcut internet kayıtlarını bilgisayarına indirebilirsin reis!")
-        except Exception as e:
-            st.error("Yedek dönüştürme hatası.")
-    else:
-        st.info("İndirilecek geçmiş veri bulunamadı.")
+        except:
+            pass
 
 # --- ANA EKRAN (SİPARİŞ TABLOSU) ---
 col_baslik, col_temizle = st.columns([3, 1])
