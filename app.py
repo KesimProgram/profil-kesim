@@ -30,11 +30,18 @@ def kayitlari_yukle():
     try:
         satirlar = worksheet.get_all_values()
         
+        # Sayfa tamamen boşsa başlığı korumaya al
         if not satirlar or len(satirlar) == 0:
             worksheet.append_row(["Isim", "List", "Settings", "Result"])
             return {}
             
         basliklar = [str(b).strip().lower() for b in satirlar[0]]
+        
+        # 🚨 KRİTİK KORUMA: Eğer 1. satırda başlık kelimeleri yoksa araya zorla ekle ve veriyi aşağı it!
+        if "isim" not in basliklar and "list" not in basliklar:
+            worksheet.insert_row(["Isim", "List", "Settings", "Result"], 1)
+            satirlar = worksheet.get_all_values()
+            basliklar = [str(b).strip().lower() for b in satirlar[0]]
         
         idx_isim = basliklar.index("isim") if "isim" in basliklar else 0
         idx_list = basliklar.index("list") if "list" in basliklar else 1
@@ -47,7 +54,7 @@ def kayitlari_yukle():
                 satir.append("")
                 
             isim = satir[idx_isim].strip()
-            if not isim:
+            if not White or not isim:
                 continue
                 
             try:
@@ -75,9 +82,18 @@ def kayit_ekle(isim, data):
     
     try:
         satirlar = worksheet.get_all_values()
-        if not satirlar:
-            worksheet.append_row(["Isim", "List", "Settings", "Result"])
-            satirlar = [["Isim", "List", "Settings", "Result"]]
+        
+        # Başlık var mı yok mu tam kontrol
+        has_headers = False
+        if satirlar and len(satirlar) > 0:
+            first_row = [str(b).strip().lower() for b in satirlar[0]]
+            if "isim" in first_row or "list" in first_row:
+                has_headers = True
+                
+        # Başlık yoksa hemen 1. satıra çak
+        if not has_headers:
+            worksheet.insert_row(["Isim", "List", "Settings", "Result"], 1)
+            satirlar = worksheet.get_all_values()
             
         basliklar = [str(b).strip().lower() for b in satirlar[0]]
         idx_isim = basliklar.index("isim") if "isim" in basliklar else 0
@@ -118,13 +134,12 @@ def kayit_sil(isim):
 st.set_page_config(page_title="Profil Kesim Optimizasyonu", layout="wide")
 st.title("✂️ Profil Kesim Optimizasyonu Kesintisiz Bulut Sürümü")
 
-# --- ARACI VE BULUT HAFIZA YAPILANDIRMASI (KOTA DOSTU) ---
+# --- ARACI VE BULUT HAFIZA YAPILANDIRMASI ---
 if 'mevcut_kayitlar' not in st.session_state:
     st.session_state.mevcut_kayitlar = None
 if 'bulut_yenile' not in st.session_state:
     st.session_state.bulut_yenile = True
 
-# Sadece gerektiğinde (Açılışta, Kayıtta, Silmede) Google'dan canlı veri çekilir
 if st.session_state.bulut_yenile or st.session_state.mevcut_kayitlar is None:
     st.session_state.mevcut_kayitlar = kayitlari_yukle()
     st.session_state.bulut_yenile = False
@@ -327,7 +342,7 @@ with st.sidebar:
         with col2:
             if st.button("🗑️ Sil", use_container_width=True) and secilen_kayit != "Seçiniz...":
                 kayit_sil(secilen_kayit)
-                st.session_state.bulut_yenile = True # Bulutu bir sonraki tetiklemede yenilemeye zorla
+                st.session_state.bulut_yenile = True
                 st.success(f"{secilen_kayit} silindi!")
                 st.rerun()
     else:
@@ -421,7 +436,7 @@ with col_kaydet:
                             "result": sonuc
                         }
                         kayit_ekle(kayit_ismi, paket_veri)
-                        st.session_state.bulut_yenile = True # Yeni kayıt geldi, bulut hafızasını güncellemeye zorla
+                        st.session_state.bulut_yenile = True
                         st.success("✅ Tebrikler! Veriler kalıcı olarak Google Drive bulutuna kilitlendi!")
                         st.rerun()
         else:
