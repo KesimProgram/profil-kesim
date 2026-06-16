@@ -211,7 +211,7 @@ def receteyi_ekrana_bas(toplam_profil, kesim_listesi, kural_aktif, min_fire, max
             durum = "⚠️ Ara Fire (Mecburi)"
             st.warning(f"- {str_baslik}: 👉 {detay_metni} *(Kalan Fire: {fire} cm - {durum})*")
 
-# --- HESAPLAMA MOTORU ---
+# --- HESAPLAMA MOTORU (FİRE TOPLAMA ÖZELLİKLİ) ---
 def optimizasyon_yap(df_temiz, L, testere, kural_aktif, min_fire, max_fire):
     uzunluklar = df_temiz["Boy (cm)"].tolist()
     gercek_uzunluklar = [boy + testere for boy in uzunluklar]
@@ -243,7 +243,27 @@ def optimizasyon_yap(df_temiz, L, testere, kural_aktif, min_fire, max_fire):
     
     A_eq = np.array(Gecerli_Desenler).T
     b_eq = np.array(adetler)
-    c = np.ones(len(Gecerli_Desenler))
+    
+    # --- TİTİZ TİE-BREAKER (FİRELERİ BİR ARADA TOPLAMA SİSTEMİ) ---
+    c = []
+    for desen in Gecerli_Desenler:
+        mevcut_uzunluk = sum(desen[k] * gercek_uzunluklar[k] for k in range(len(gercek_uzunluklar)))
+        fire = L - mevcut_uzunluk
+        
+        # Temel maliyet 1.0'dır (Profil adedi). Üzerine dağınık fireleri engellemek için mikro ceza ekliyoruz.
+        if kural_aktif:
+            if min_fire < fire < max_fire:
+                ceza = 0.001  # İstenmeyen dağınık ara fire cezası
+            else:
+                ceza = 0.0    # Tam dolu veya devasa sağlam parça bırakanlar ödüllendirilir (cezasız kalır)
+        else:
+            if 5.0 < fire < (L / 2):
+                ceza = 0.001  # Kural kapalıyken bile orta boy boşlukları cezalandırır
+            else:
+                ceza = 0.0
+        c.append(1.0 + ceza)
+        
+    c = np.array(c)
     
     constraints_tam = LinearConstraint(A_eq, b_eq, b_eq)
     res = milp(c=c, constraints=constraints_tam, integrality=np.ones_like(c), bounds=Bounds(0, np.inf), options={'time_limit': 60})
