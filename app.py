@@ -53,7 +53,7 @@ def kayitlari_yukle():
                 satir.append("")
                 
             isim = satir[idx_isim].strip()
-            if not isim:  # 🚨 İŞTE BURADAKİ GAYRİRESMİ KELİME KÖKTEN TEMİZLENDİ REİS!
+            if not isim:
                 continue
                 
             try:
@@ -121,7 +121,8 @@ def kayit_sil(isim):
         idx_isim = basliklar.index("isim") if "isim" in basliklar else 0
         
         for idx, satir in enumerate(satirlar[1:]):
-            if len(satir) > idx_isim && satir[idx_isim].strip() == str(isim):
+            # 🚨 DÜZELTME: && işareti 'and' olarak değiştirildi reis!
+            if len(satir) > idx_isim and satir[idx_isim].strip() == str(isim):
                 worksheet.delete_rows(idx + 2)
                 break
     except Exception as e:
@@ -155,14 +156,14 @@ def pdf_recete_olustur(toplam_profil, kesim_listesi, kategori):
     pdf.set_x(10)
     pdf.set_font("Helvetica", "", 11)
     
-    topham_parcalar = {}
+    toplam_parcalar = {}
     for p in kesim_listesi:
         for boy, adet in p['kesimler']:
-            topham_parcalar[boy] = topham_parcalar.get(boy, 0) + adet
+            toplam_parcalar[boy] = toplam_parcalar.get(boy, 0) + adet
             
     ozet_items = []
-    for boy in sorted(topham_parcalar.keys()):
-        ozet_items.append(f"{topham_parcalar[boy]} Adet {boy} cm")
+    for boy in sorted(toplam_parcalar.keys()):
+        ozet_items.append(f"{toplam_parcalar[boy]} Adet {boy} cm")
         
     for i, item in enumerate(ozet_items):
         suffix = "  |  " if i < len(ozet_items) - 1 else ""
@@ -398,7 +399,7 @@ def receteyi_ekrana_bas(toplam_profil, kesim_listesi, kural_aktif, min_fire, max
         detay_metni = " | ".join(kesilecek_parcalar)
         
         if kural_aktif and fire >= max_fire:
-            durum = "♻️ Sağlam Parça (Geri Kullanılabilir)"
+            durum = "♻️ Sağlam Parça (Geri Kullanılan)"
             st.info(f"- {str_baslik}: 👉 {detay_metni} *(Kalan Fire: {fire} cm - {durum})*")
         elif kural_aktif and fire <= min_fire:
             durum = "🗑️ Çöp Fire"
@@ -406,67 +407,6 @@ def receteyi_ekrana_bas(toplam_profil, kesim_listesi, kural_aktif, min_fire, max
         else:
             durum = "⚠️ Ara Fire (Mecburi)"
             st.warning(f"- {str_baslik}: 👉 {detay_metni} *(Kalan Fire: {fire} cm - {durum})*")
-
-# --- YAN MENÜ ---
-with st.sidebar:
-    st.header("⚙️ İş ve Tezgâh Ayarları")
-    
-    kategori_listesi = ["Profil", "Kulplar"]
-    kat_idx = kategori_listesi.index(st.session_state.set_kat) if st.session_state.set_kat in kategori_listesi else 0
-    st.selectbox("İş Kategorisi", kategori_listesi, index=kat_idx, key="kategori_widget", on_change=kategori_tetikleyici)
-    
-    L_input = st.number_input("Profil Standart Uzunluğu (cm)", value=float(st.session_state.set_L), step=1.0)
-    testere = st.number_input("Testere Payı (cm)", value=float(st.session_state.set_testere), step=0.1)
-    
-    st.divider()
-    st.subheader("Fire Kuralı Ayarları")
-    kural_aktif = st.checkbox("Fire Sınır Kuralını Uygula", value=bool(st.session_state.set_kural))
-    
-    if kural_aktif:
-        min_fire = st.number_input("Çöp Fire Üst Sınırı (cm)", value=float(st.session_state.set_min))
-        max_fire = st.number_input("Kullanılabilir Fire Alt Sınırı (cm)", value=float(st.session_state.set_max))
-    else:
-        min_fire, max_fire = 0.0, 0.0
-
-    st.session_state.set_L = L_input
-    st.session_state.set_testere = testere
-    st.session_state.set_kural = kural_aktif
-    st.session_state.set_min = min_fire
-    st.session_state.set_max = max_fire
-
-    st.divider()
-    st.header("☁️ Google Buluttan Yükle")
-    
-    if mevcut_kayitlar:
-        secilen_kayit = st.selectbox("Kayıtlı Komple İş Seç:", ["Seçiniz..."] + list(mevcut_kayitlar.keys()))
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("📂 Yükle", use_container_width=True) and secilen_kayit != "Seçiniz...":
-                data = mevcut_kayitlar[secilen_kayit]
-                st.session_state.df_profil = pd.DataFrame(data["list"])
-                
-                st.session_state.set_kat = data["settings"]["kategori"]
-                st.session_state.set_L = float(data["settings"]["L"])
-                st.session_state.set_testere = float(data["settings"]["testere"])
-                st.session_state.set_kural = bool(data["settings"]["kural_aktif"])
-                st.session_state.set_min = float(data["settings"]["min_fire"])
-                st.session_state.set_max = float(data["settings"]["max_fire"])
-                
-                st.session_state.aktif_hesap_sonucu = data.get("result", None)
-                st.session_state.hesaplanan_df = st.session_state.df_profil.copy()
-                st.session_state.hesaplanan_ayarlar = data["settings"]
-                st.session_state.saved_name_val = secilen_kayit
-                
-                st.session_state.tablo_anahtari += 1
-                st.rerun() 
-        with col2:
-            if st.button("🗑️ Sil", use_container_width=True) and secilen_kayit != "Seçiniz...":
-                kayit_sil(secilen_kayit)
-                st.session_state.bulut_yenile = True
-                st.success(f"{secilen_kayit} silindi!")
-                st.rerun()
-    else:
-        st.info("Bulutta henüz kayıtlı iş bulunamadı.")
 
 # --- ANA EKRAN ---
 col_baslik, col_temizle = st.columns([3, 1])
@@ -537,4 +477,47 @@ with col_kaydet:
                 with st.spinner("Google Buluta gönderiliyor..."):
                     if degisti_mi or st.session_state.aktif_hesap_sonucu is None:
                         sonuc, hata = optimizasyon_yap(
-                            df
+                            df_gecerli, st.session_state.set_L, st.session_state.set_testere, 
+                            st.session_state.set_kural, st.session_state.set_min, st.session_state.set_max
+                        )
+                        st.session_state.hesaplanan_df = df_gecerli.copy()
+                        st.session_state.hesaplanan_ayarlar = guncel_ayarlar
+                    else:
+                        sonuc = st.session_state.aktif_hesap_sonucu
+                        hata = None
+
+                    if hata:
+                        st.error(f"Hesaplama hatası nedeniyle kaydedilemedi: {hata}")
+                    else:
+                        st.session_state.aktif_hesap_sonucu = sonuc
+                        paket_veri = {
+                            "list": df_gecerli.to_dict('records'),
+                            "settings": guncel_ayarlar,
+                            "result": sonuc
+                        }
+                        kayit_ekle(kayit_ismi, paket_veri)
+                        st.session_state.bulut_yenile = True
+                        st.success("✅ Tebrikler! Veriler kalıcı olarak Google Drive bulutuna kilitlendi!")
+                        st.rerun()
+        else:
+            st.warning("Lütfen kaydetmek için bir isim yaz.")
+st.write("---")
+
+if st.session_state.aktif_hesap_sonucu is not None:
+    receteyi_ekrana_bas(
+        st.session_state.aktif_hesap_sonucu["toplam_profil"],
+        st.session_state.aktif_hesap_sonucu["kesim_listesi"],
+        st.session_state.set_kural,
+        st.session_state.set_min,
+        st.session_state.set_max
+    )
+    
+    st.write("")
+    try:
+        pdf_bytes = pdf_recete_olustur(
+            st.session_state.aktif_hesap_sonucu["toplam_profil"],
+            st.session_state.aktif_hesap_sonucu["kesim_listesi"],
+            st.session_state.set_kat
+        )
+        st.download_button(
+            label="🖨️ Kesim Reçetesini PDF Olarak İndir (Çıktı Al)",
