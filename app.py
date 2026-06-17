@@ -121,7 +121,6 @@ def kayit_sil(isim):
         idx_isim = basliklar.index("isim") if "isim" in basliklar else 0
         
         for idx, satir in enumerate(satirlar[1:]):
-            # 🚨 DÜZELTME: && işareti 'and' olarak değiştirildi reis!
             if len(satir) > idx_isim and satir[idx_isim].strip() == str(isim):
                 worksheet.delete_rows(idx + 2)
                 break
@@ -519,5 +518,15 @@ if st.session_state.aktif_hesap_sonucu is not None:
             st.session_state.aktif_hesap_sonucu["kesim_listesi"],
             st.session_state.set_kat
         )
+        
+        # 🚨 DÜZELTME: Python derleyicisini şaşırtan f-string if-else yapısı dışarı taşınarak temizlendi reis!
+        is_ismi = st.session_state.saved_name_val if st.session_state.saved_name_val else "is"
+        pdf_dosya_adi = f"kesim_recetesi_{is_ismi}.pdf"
+        
         st.download_button(
             label="🖨️ Kesim Reçetesini PDF Olarak İndir (Çıktı Al)",
+            data=pdf_bytes,
+            file_name=pdf_dosya_adi,
+            mime="application/pdf",
+            type="secondary"
+        )
