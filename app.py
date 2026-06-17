@@ -127,7 +127,7 @@ def kayit_sil(isim):
     except Exception as e:
         st.sidebar.error(f"❌ Silme Hatası: {e}")
 
-# --- AKILLI PDF DOSYASI ÜRETİM MOTORU (AKILLI SATIR TAŞIRMA KAKANI) ---
+# --- AKILLI PDF DOSYASI ÜRETİM MOTORU (TAŞMA VE BÖLÜNME KORUMALI) ---
 def pdf_recete_olustur(toplam_profil, kesim_listesi, kategori):
     pdf = FPDF()
     pdf.add_page()
@@ -139,17 +139,17 @@ def pdf_recete_olustur(toplam_profil, kesim_listesi, kategori):
         return text
 
     pdf.set_font("Helvetica", "B", 16)
-    pdf.cell(0, 12, txt=tr(f"ATOLYE KESIM RECETESI ({kategori.upper()} MODU)"), ln=1, align="C")
+    pdf.cell(pdf.epw, 12, txt=tr(f"ATOLYE KESIM RECETESI ({kategori.upper()} MODU)"), ln=1, align="C")
     pdf.line(10, 22, 200, 22)
     pdf.ln(5)
     
     pdf.set_font("Helvetica", "", 12)
-    pdf.cell(0, 8, txt=tr(f"Toplam Kullanilacak Profil Adedi: {toplam_profil} Adet"), ln=1)
+    pdf.cell(pdf.epw, 8, txt=tr(f"Toplam Kullanilacak Profil Adedi: {toplam_profil} Adet"), ln=1)
     
-    # 📊 PDF ÖZET ALANI: Akıllı bölünmez blok taşırma sistemi
+    # 📊 PDF ÖZET ALANI
     pdf.ln(3)
     pdf.set_font("Helvetica", "B", 12)
-    pdf.cell(0, 8, txt=tr("Toplam Kesilecek Parca Ozet Listesi:"), ln=1)
+    pdf.cell(pdf.epw, 8, txt=tr("Toplam Kesilecek Parca Ozet Listesi:"), ln=1)
     pdf.set_font("Helvetica", "", 11)
     
     toplam_parcalar = {}
@@ -161,25 +161,26 @@ def pdf_recete_olustur(toplam_profil, kesim_listesi, kategori):
     for boy in sorted(toplam_parcalar.keys()):
         ozet_items.append(f"{toplam_parcalar[boy]} Adet {boy} cm")
         
-    # 🛡️ Adet ve ölçünün ayrı satırlara düşmesini engelleyen akıllı döngü
+    # 🛡️ KALKAN: Adet ve ölçünün asla bölünmeden, sığmadığı yerde komple alta geçmesini sağlayan koruma döngüsü
     for i, item in enumerate(ozet_items):
-        suffix = " | " if i < len(ozet_items) - 1 else ""
+        suffix = "  |  " if i < len(ozet_items) - 1 else ""
         blok_metni = item + suffix
         blok_genislik = pdf.get_string_width(tr(blok_metni))
         
-        # Sayfa kenar marjı sınırı 195mm'dir. Eğer bu blok sığmayacaksa otomatik alt satıra bük
-        if pdf.get_x() + blok_genislik > 195:
+        # Standart sayfa sınırı (Sağ marj 200mm). Eğer bu blok sığmıyorsa alt satıra büküyoruz
+        if pdf.get_x() + blok_genislik > 200:
             pdf.ln(7)
             
-        pdf.write(7, tr(blok_metni))
+        # Hücre şeklinde basarak fpdf2'nin otomatik karakter hesaplama hatasını sıfırlıyoruz
+        pdf.cell(blok_genislik, 7, txt=tr(blok_metni), ln=0)
         
-    pdf.ln(5)
-    pdf.line(10, pdf.get_y() + 4, 200, pdf.get_y() + 4)
     pdf.ln(7)
+    pdf.line(10, pdf.get_y() + 2, 200, pdf.get_y() + 2)
+    pdf.ln(5)
     
     # Detaylar Başlığı
     pdf.set_font("Helvetica", "B", 13)
-    pdf.cell(0, 10, txt=tr("Profil Kesim Planlama Detaylari:"), ln=1)
+    pdf.cell(pdf.epw, 10, txt=tr("Profil Kesim Planlama Detaylari:"), ln=1)
     pdf.set_font("Helvetica", "", 11)
     
     profil_no = 1
@@ -212,8 +213,8 @@ def pdf_recete_olustur(toplam_profil, kesim_listesi, kategori):
         
         satir = f"- {str_baslik}:  {detay_metni}  (Kalan Fire: {fire} cm)"
         
-        # 🛡️ Profil detay satırları da çok uzun olunca sayfadan taşmasın diye multi_cell yapıldı
-        pdf.multi_cell(0, 7, txt=tr(satir))
+        # 🛡️ Profil detay satırları da sayfadan taşmasın diye tam sayfa genişliğinde multi_cell yapıldı
+        pdf.multi_cell(pdf.epw, 7, txt=tr(satir))
         
     return bytes(pdf.output())
 
