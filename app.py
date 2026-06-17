@@ -181,7 +181,7 @@ def pdf_recete_olustur(toplam_profil, kesim_listesi, kategori):
     pdf.ln(5)
     pdf.set_x(10)
     
-    # Detaylar Başlığı
+    # ⚙️ Detaylar Başlığı
     pdf.set_font("Helvetica", "B", 13)
     pdf.cell(0, 10, txt=tr("Profil Kesim Planlama Detaylari:"), ln=1)
     pdf.set_x(10)
@@ -213,13 +213,38 @@ def pdf_recete_olustur(toplam_profil, kesim_listesi, kategori):
         kesilecek_parcalar = []
         for boy, adet in kesimler:
             kesilecek_parcalar.append(f"{adet} adet {boy} cm")
-        detay_metni = " | ".join(kesilecek_parcalar)
-        
-        satir = f"- {str_baslik}:  {detay_metni}  (Kalan Fire: {fire} cm)"
-        
+            
+        # 🚨 BURASI GÜNCELLENDİ: Bölünmez Blok Kalkanı
+        baslik_metni = f"- {str_baslik}:  "
         pdf.set_x(10)
-        pdf.multi_cell(0, 7, txt=tr(satir))
-        pdf.set_x(10)
+        
+        baslik_w = pdf.get_string_width(tr(baslik_metni))
+        if pdf.get_x() + baslik_w > 200:
+            pdf.ln(7)
+            pdf.set_x(10)
+        pdf.cell(baslik_w, 7, txt=tr(baslik_metni), ln=0)
+        
+        for i, parca in enumerate(kesilecek_parcalar):
+            suffix = " | " if i < len(kesilecek_parcalar) - 1 else "  "
+            blok_metni = parca + suffix
+            blok_w = pdf.get_string_width(tr(blok_metni))
+            
+            # Eğer bu blok (adet + ölçü) sağ kenara sığmıyorsa, bölmeden bir alt satıra at.
+            if pdf.get_x() + blok_w > 200:
+                pdf.ln(7)
+                pdf.set_x(14) # Alt satıra geçince okunabilirliği artırmak için hafif girinti (indent)
+                
+            pdf.cell(blok_w, 7, txt=tr(blok_metni), ln=0)
+            
+        # Fire metnini de aynı mantıkla taşırma yapmadan ekliyoruz
+        fire_metni = f"(Kalan Fire: {fire} cm)"
+        fire_w = pdf.get_string_width(tr(fire_metni))
+        if pdf.get_x() + fire_w > 200:
+            pdf.ln(7)
+            pdf.set_x(14)
+        pdf.cell(fire_w, 7, txt=tr(fire_metni), ln=0)
+        
+        pdf.ln(7) # Diğer profile geçmek için satır atla
         
     return bytes(pdf.output())
 
@@ -398,7 +423,7 @@ def receteyi_ekrana_bas(toplam_profil, kesim_listesi, kural_aktif, min_fire, max
         detay_metni = " | ".join(kesilecek_parcalar)
         
         if kural_aktif and fire >= max_fire:
-            durum = "♻️ Sağlam Parça (Geri Kullanılabilir)"
+            durum = "♻️ Sağlam Parça (Geri Kullanılan)"
             st.info(f"- {str_baslik}: 👉 {detay_metni} *(Kalan Fire: {fire} cm - {durum})*")
         elif kural_aktif and fire <= min_fire:
             durum = "🗑️ Çöp Fire"
