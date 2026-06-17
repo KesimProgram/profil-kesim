@@ -53,7 +53,7 @@ def kayitlari_yukle():
                 satir.append("")
                 
             isim = satir[idx_isim].strip()
-            if not White or not isim:
+            if not isim:  # 🚨 İŞTE BURADAKİ GAYRİRESMİ KELİME KÖKTEN TEMİZLENDİ REİS!
                 continue
                 
             try:
@@ -121,13 +121,13 @@ def kayit_sil(isim):
         idx_isim = basliklar.index("isim") if "isim" in basliklar else 0
         
         for idx, satir in enumerate(satirlar[1:]):
-            if len(satir) > idx_isim and satir[idx_isim].strip() == str(isim):
+            if len(satir) > idx_isim && satir[idx_isim].strip() == str(isim):
                 worksheet.delete_rows(idx + 2)
                 break
     except Exception as e:
         st.sidebar.error(f"❌ Silme Hatası: {e}")
 
-# --- AKILLI PDF DOSYASI ÜRETİM MOTORU (TAŞMA VE HİZALAMA KORUMALI) ---
+# --- AKILLI PDF DOSYASI ÜRETİM MOTORU ---
 def pdf_recete_olustur(toplam_profil, kesim_listesi, kategori):
     pdf = FPDF()
     pdf.add_page()
@@ -155,22 +155,20 @@ def pdf_recete_olustur(toplam_profil, kesim_listesi, kategori):
     pdf.set_x(10)
     pdf.set_font("Helvetica", "", 11)
     
-    toplam_parcalar = {}
+    topham_parcalar = {}
     for p in kesim_listesi:
         for boy, adet in p['kesimler']:
-            toplam_parcalar[boy] = toplam_parcalar.get(boy, 0) + adet
+            topham_parcalar[boy] = topham_parcalar.get(boy, 0) + adet
             
     ozet_items = []
-    for boy in sorted(toplam_parcalar.keys()):
-        ozet_items.append(f"{toplam_parcalar[boy]} Adet {boy} cm")
+    for boy in sorted(topham_parcalar.keys()):
+        ozet_items.append(f"{topham_parcalar[boy]} Adet {boy} cm")
         
-    # 🛡️ Adet ve ölçünün asla bölünmeden, sığmadığı yerde komple alta geçmesini sağlayan döngü
     for i, item in enumerate(ozet_items):
         suffix = "  |  " if i < len(ozet_items) - 1 else ""
         blok_metni = item + suffix
         blok_genislik = pdf.get_string_width(tr(blok_metni))
         
-        # Sağ sınır marjı kontrolü (200mm). Taşarsa alta büküp X'i kesinlikle 10'a sabitliyoruz
         if pdf.get_x() + blok_genislik > 200:
             pdf.ln(7)
             pdf.set_x(10)
@@ -219,7 +217,6 @@ def pdf_recete_olustur(toplam_profil, kesim_listesi, kategori):
         
         satir = f"- {str_baslik}:  {detay_metni}  (Kalan Fire: {fire} cm)"
         
-        # 🛡️ ZIRHLI multi_cell: w=0 kullanarak tüm satırı sağ marja kadar yasla, X'i her dönüşte elle 10'a sabitle
         pdf.set_x(10)
         pdf.multi_cell(0, 7, txt=tr(satir))
         pdf.set_x(10)
@@ -230,7 +227,7 @@ def pdf_recete_olustur(toplam_profil, kesim_listesi, kategori):
 def optimizasyon_yap(df_temiz, L, testere, kural_aktif, min_fire, max_fire):
     uzunluklar = df_temiz["Boy (cm)"].tolist()
     gercek_uzunluklar = [boy + testere for boy in uzunluklar]
-    adetler = df_temiz["Adet"].tolist()
+    indent = df_temiz["Adet"].tolist()
     
     Gecerli_Desenler = []
     
@@ -257,7 +254,7 @@ def optimizasyon_yap(df_temiz, L, testere, kural_aktif, min_fire, max_fire):
         return None, "Girdiğiniz kurallara uygun kesim ihtimali bulunamadı. Lütfen fire kurallarını esnetmeyi deneyin."
     
     A_eq = np.array(Gecerli_Desenler).T
-    b_eq = np.array(adetler)
+    b_eq = np.array(indent)
     
     c = []
     for Pattern in Gecerli_Desenler:
@@ -292,7 +289,7 @@ def optimizasyon_yap(df_temiz, L, testere, kural_aktif, min_fire, max_fire):
             cozum = np.round(res_esnek.x).astype(int)
     
     if cozum_gecerli:
-        kalan_ihtiyac = {uzunluklar[i]: adetler[i] for i in range(len(uzunluklar))}
+        kalan_ihtiyac = {uzunluklar[i]: indent[i] for i in range(len(uzunluklar))}
         kesim_listesi = []
         
         for i, miktar in enumerate(cozum):
@@ -359,14 +356,14 @@ def receteyi_ekrana_bas(toplam_profil, kesim_listesi, kural_aktif, min_fire, max
     st.success(f"✅ Hesaplama Tamam! Toplam Kullanılacak Profil: {toplam_profil} Adet")
     
     st.subheader("📊 Toplam Kesilecek Parça Özet Listesi")
-    toplam_parcalar = {}
+    topham_parcalar = {}
     for p in kesim_listesi:
         for boy, adet in p['kesimler']:
-            toplam_parcalar[boy] = toplam_parcalar.get(boy, 0) + adet
+            topham_parcalar[boy] = topham_parcalar.get(boy, 0) + adet
             
     ozet_metinleri = []
-    for boy in sorted(toplam_parcalar.keys()):
-        ozet_metinleri.append(f"**{toplam_parcalar[boy]} Adet {boy} cm**")
+    for boy in sorted(topham_parcalar.keys()):
+        ozet_metinleri.append(f"**{topham_parcalar[boy]} Adet {boy} cm**")
     st.markdown(" | ".join(ozet_metinleri))
     st.write("---")
     
@@ -409,6 +406,67 @@ def receteyi_ekrana_bas(toplam_profil, kesim_listesi, kural_aktif, min_fire, max
         else:
             durum = "⚠️ Ara Fire (Mecburi)"
             st.warning(f"- {str_baslik}: 👉 {detay_metni} *(Kalan Fire: {fire} cm - {durum})*")
+
+# --- YAN MENÜ ---
+with st.sidebar:
+    st.header("⚙️ İş ve Tezgâh Ayarları")
+    
+    kategori_listesi = ["Profil", "Kulplar"]
+    kat_idx = kategori_listesi.index(st.session_state.set_kat) if st.session_state.set_kat in kategori_listesi else 0
+    st.selectbox("İş Kategorisi", kategori_listesi, index=kat_idx, key="kategori_widget", on_change=kategori_tetikleyici)
+    
+    L_input = st.number_input("Profil Standart Uzunluğu (cm)", value=float(st.session_state.set_L), step=1.0)
+    testere = st.number_input("Testere Payı (cm)", value=float(st.session_state.set_testere), step=0.1)
+    
+    st.divider()
+    st.subheader("Fire Kuralı Ayarları")
+    kural_aktif = st.checkbox("Fire Sınır Kuralını Uygula", value=bool(st.session_state.set_kural))
+    
+    if kural_aktif:
+        min_fire = st.number_input("Çöp Fire Üst Sınırı (cm)", value=float(st.session_state.set_min))
+        max_fire = st.number_input("Kullanılabilir Fire Alt Sınırı (cm)", value=float(st.session_state.set_max))
+    else:
+        min_fire, max_fire = 0.0, 0.0
+
+    st.session_state.set_L = L_input
+    st.session_state.set_testere = testere
+    st.session_state.set_kural = kural_aktif
+    st.session_state.set_min = min_fire
+    st.session_state.set_max = max_fire
+
+    st.divider()
+    st.header("☁️ Google Buluttan Yükle")
+    
+    if mevcut_kayitlar:
+        secilen_kayit = st.selectbox("Kayıtlı Komple İş Seç:", ["Seçiniz..."] + list(mevcut_kayitlar.keys()))
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("📂 Yükle", use_container_width=True) and secilen_kayit != "Seçiniz...":
+                data = mevcut_kayitlar[secilen_kayit]
+                st.session_state.df_profil = pd.DataFrame(data["list"])
+                
+                st.session_state.set_kat = data["settings"]["kategori"]
+                st.session_state.set_L = float(data["settings"]["L"])
+                st.session_state.set_testere = float(data["settings"]["testere"])
+                st.session_state.set_kural = bool(data["settings"]["kural_aktif"])
+                st.session_state.set_min = float(data["settings"]["min_fire"])
+                st.session_state.set_max = float(data["settings"]["max_fire"])
+                
+                st.session_state.aktif_hesap_sonucu = data.get("result", None)
+                st.session_state.hesaplanan_df = st.session_state.df_profil.copy()
+                st.session_state.hesaplanan_ayarlar = data["settings"]
+                st.session_state.saved_name_val = secilen_kayit
+                
+                st.session_state.tablo_anahtari += 1
+                st.rerun() 
+        with col2:
+            if st.button("🗑️ Sil", use_container_width=True) and secilen_kayit != "Seçiniz...":
+                kayit_sil(secilen_kayit)
+                st.session_state.bulut_yenile = True
+                st.success(f"{secilen_kayit} silindi!")
+                st.rerun()
+    else:
+        st.info("Bulutta henüz kayıtlı iş bulunamadı.")
 
 # --- ANA EKRAN ---
 col_baslik, col_temizle = st.columns([3, 1])
@@ -479,54 +537,4 @@ with col_kaydet:
                 with st.spinner("Google Buluta gönderiliyor..."):
                     if degisti_mi or st.session_state.aktif_hesap_sonucu is None:
                         sonuc, hata = optimizasyon_yap(
-                            df_gecerli, st.session_state.set_L, st.session_state.set_testere, 
-                            st.session_state.set_kural, st.session_state.set_min, st.session_state.set_max
-                        )
-                        st.session_state.hesaplanan_df = df_gecerli.copy()
-                        st.session_state.hesaplanan_ayarlar = guncel_ayarlar
-                    else:
-                        sonuc = st.session_state.aktif_hesap_sonucu
-                        hata = None
-
-                    if hata:
-                        st.error(f"Hesaplama hatası nedeniyle kaydedilemedi: {hata}")
-                    else:
-                        st.session_state.aktif_hesap_sonucu = sonuc
-                        paket_veri = {
-                            "list": df_gecerli.to_dict('records'),
-                            "settings": guncel_ayarlar,
-                            "result": sonuc
-                        }
-                        kayit_ekle(kayit_ismi, paket_veri)
-                        st.session_state.bulut_yenile = True
-                        st.success("✅ Tebrikler! Veriler kalıcı olarak Google Drive bulutuna kilitlendi!")
-                        st.rerun()
-        else:
-            st.warning("Lütfen kaydetmek için bir isim yaz.")
-st.write("---")
-
-if st.session_state.aktif_hesap_sonucu is not None:
-    receteyi_ekrana_bas(
-        st.session_state.aktif_hesap_sonucu["toplam_profil"],
-        st.session_state.aktif_hesap_sonucu["kesim_listesi"],
-        st.session_state.set_kural,
-        st.session_state.set_min,
-        st.session_state.set_max
-    )
-    
-    st.write("")
-    try:
-        pdf_bytes = pdf_recete_olustur(
-            st.session_state.aktif_hesap_sonucu["toplam_profil"],
-            st.session_state.aktif_hesap_sonucu["kesim_listesi"],
-            st.session_state.set_kat
-        )
-        st.download_button(
-            label="🖨️ Kesim Reçetesini PDF Olarak İndir (Çıktı Al)",
-            data=pdf_bytes,
-            file_name=f"kesim_recetesi_{st.session_state.saved_name_val if st.session_state.saved_name_val else 'is'}.pdf",
-            mime="application/pdf",
-            type="secondary"
-        )
-    except Exception as pdf_error:
-        st.error(f"PDF Hazirlanirken hata olustu: {pdf_error}")
+                            df
