@@ -5,6 +5,7 @@ from scipy.optimize import milp, LinearConstraint, Bounds
 import json
 import gspread
 from google.oauth2.service_account import Credentials
+from fpdf import FPDF
 
 # --- BULUT (GOOGLE SHEETS) ULTRA-ROBUST VERİTABANI MOTORU ---
 def google_sheets_baglan():
@@ -126,9 +127,156 @@ def kayit_sil(isim):
     except Exception as e:
         st.sidebar.error(f"❌ Silme Hatası: {e}")
 
-# --- SAYFA AYARLARI ---
-st.set_page_config(page_title="Profil Kesim Optimizasyonu", layout="wide")
-st.title("✂️ Profil Kesim Optimizasyonu Kesintisiz Bulut Sürümü")
+# --- AKILLI PDF DOSYASI ÜRETİM MOTORU ---
+def pdf_recete_olustur(toplam_profil, kesim_listesi, kategori):
+    pdf = FPDF()
+    pdf.add_page()
+    
+    # PDF standart fontlarda Türkçe karakter hatası vermesin diye kelime temizleyici kalkan
+    def tr(text):
+        rep = {"ç":"c", "ğ":"g", "ı":"i", "ö":"o", "ş":"s", "ü":"u", "Ç":"C", "Ğ":"G", "İ":"I", "Ö":"O", "Ş":"S", "Ü":"U"}
+        for k, v in rep.items():
+            text = text.replace(k, v)
+        return text
+
+    # Başlık Alanı
+    pdf.set_font("Helvetica", "B", 16)
+    pdf.cell(0, 12, txt=tr(f"ATOLYE KESIM RECETESI ({kategori.upper()} MODU)"), ln=1, align="C")
+    pdf.line(10, 22, 200, 22)
+    pdf.ln(5)
+    
+    # Özet Bilgiler
+    pdf.set_font("Helvetica", "", 12)
+    pdf.cell(0, 8, txt=tr(f"Toplam Kullanilacak Profil Adedi: {toplam_profil} Adet"), ln=1)
+    pdf.ln(5)
+    
+    # Detaylar Başlığı
+    pdf.set_font("Helvetica", "B", 13)
+    pdf.cell(0, 10, txt=tr("Profil Kesim Planlama Detaylari:"), ln=1)
+    pdf.set_font("Helvetica", "", 11)
+    
+    profil_no = 1
+    grup_dict = {}
+    for p in kesim_listesi:
+        normalized_kesimler = tuple((item[0], item[1]) for item in p['kesimler'])
+        key = (normalized_kesimler, p['fire'])
+        if key not in grup_dict:
+            grup_dict[key] = []
+        grup_dict[key].append(profil_no)
+        profil_no += 1
+        
+    for key, nolar in grup_dict.items():
+        kesimler, fire = key
+        if len(nolar) == 1:
+            str_baslik = f"Profil {nolar[0]} (1 Adet)"
+        elif len(nolar) == 2:
+            str_baslik = f"Profil {nolar[0]} ve {nolar[1]} (Toplam 2 Adet)"
+        else:
+            if nolar == list(range(nolar[0], nolar[-1] + 1)):
+                str_baslik = f"Profil {nolar[0]} - {nolar[-1]} arasi (Toplam {len(nolar)} Adet)"
+            else:
+                str_nolar = [str(n) for n in nolar]
+                str_baslik = f"Profil {', '.join(str_nolar[:-1])} ve {str_nolar[-1]} (Toplam {len(nolar)} Adet)"
+        
+        kesilecek_parcalar = []
+        for boy, adet in kesimler:
+            kesilecek_parcalar.append(f"{adet} adet {boy} cm")
+        detay_metni = " | ".join(kesilecek_parcalar)
+        
+        satir = f"- {str_baslik}:  {detay_metni}  (Kalan Fire: {fire} cm)"
+        pdf.cell(0, 8, txt=tr(satir), ln=1)
+        
+    return pdf.output()
+
+# --- HESAPLAMA MOTORU ---
+def optimizasyon_yap(df_temiz, L, testere, kural_aktif, min_fire, max_fire):
+    uzunluklar = df_temiz["Boy (cm)"].tolist()
+    gercek_uzunluklar = [boy + testere for boy in uzunluklar]
+    adetler = df_temiz["Adet"].tolist()
+    
+    Gecerli_Desenler = []
+    
+    def desen_uret(index, mevcut_desen, mevcut_uzunluk):
+        if index == len(gercek_uzunluklar):
+            fire = L - mevcut_uzunluk
+            if fire >= -0.01:
+                if kural_aktif:
+                    if fire <= (min_fire + 0.45) or fire >= (max_fire - 0.45):
+                        Gecerli_Desenler.append(tuple(mevcut_desen))
+                else:
+                    Gecerli_Desenler.append(tuple(mevcut_desen))
+            return
+        
+        max_adet = int((L - mevcut_uzunluk) // gercek_uzunluklar[index])
+        for i in range(max_adet + 1):
+            mevcut_desen.append(i)
+            desen_uret(index + 1, mevcut_desen, mevcut_uzunluk + i * gercek_uzunluklar[index])
+            mevcut_desen.pop()
+
+    desen_uret(0, [], 0.0)
+    
+    if not Gecerli_Desenler:
+        return None, "Girdiğiniz kurallara uygun kesim ihtimali bulunamadı. Lütfen fire kurallarını esnetmeyi deneyin."
+    
+    A_eq = np.array(Gecerli_Desenler).T
+    b_eq = np.array(adetler)
+    
+    c = []
+    for desen in Gecerli_Desenler:
+        mevcut_uzunluk = sum(desen[k] * gercek_uzunluklar[k] for k in range(len(gercek_uzunluklar)))
+        fire = L - mevcut_uzunluk
+        
+        if kural_aktif:
+            if min_fire < fire < max_fire:
+                ceza = 0.001 
+            else:
+                ceza = 0.0   
+        else:
+            if 5.0 < fire < (L / 2):
+                ceza = 0.001 
+            else:
+                ceza = 0.0
+        c.append(1.0 + ceza)
+        
+    c = np.array(c)
+    
+    constraints_tam = LinearConstraint(A_eq, b_eq, b_eq)
+    res = milp(c=c, constraints=constraints_tam, integrality=np.ones_like(c), bounds=Bounds(0, np.inf), options={'time_limit': 60})
+    
+    cozum_gecerli = False
+    if res.success or (hasattr(res, 'x') and res.x is not None):
+        cozum_gecerli = True
+        cozum = np.round(res.x).astype(int)
+    else:
+        res_esnek = milp(c=c, constraints=LinearConstraint(A_eq, b_eq, np.inf), integrality=np.ones_like(c), bounds=Bounds(0, np.inf))
+        if res_esnek.success:
+            cozum_gecerli = True
+            cozum = np.round(res_esnek.x).astype(int)
+    
+    if cozum_gecerli:
+        kalan_ihtiyac = {uzunluklar[i]: adetler[i] for i in range(len(uzunluklar))}
+        kesim_listesi = []
+        
+        for i, miktar in enumerate(cozum):
+            if miktar > 0:
+                for _ in range(miktar):
+                    profil_kesim = {}
+                    kullanilan_boy = 0
+                    for j, parca_adeti in enumerate(Gecerli_Desenler[i]):
+                        boy = uzunluklar[j]
+                        kesilecek = min(parca_adeti, kalan_ihtiyac[boy])
+                        if kesilecek > 0:
+                            profil_kesim[boy] = kesilecek
+                            kullanilan_boy += kesilecek * gercek_uzunluklar[j]
+                            kalan_ihtiyac[boy] -= kesilecek
+                    
+                    if profil_kesim:
+                        fire = round(L - kullanilan_boy, 1)
+                        kesim_listesi.append({'kesimler': list(profil_kesim.items()), 'fire': fire})
+        
+        return {"toplam_profil": len(kesim_listesi), "kesim_listesi": kesim_listesi}, None
+    else:
+        return None, "Matematiksel bir çözüm bulunamadı. Lütfen sipariş adetlerini kontrol edin."
 
 # --- ARACI VE BULUT HAFIZA YAPILANDIRMASI ---
 if 'mevcut_kayitlar' not in st.session_state:
@@ -210,98 +358,6 @@ def receteyi_ekrana_bas(toplam_profil, kesim_listesi, kural_aktif, min_fire, max
         else:
             durum = "⚠️ Ara Fire (Mecburi)"
             st.warning(f"- {str_baslik}: 👉 {detay_metni} *(Kalan Fire: {fire} cm - {durum})*")
-
-# --- HESAPLAMA MOTORU (FİRE TOPLAMA ÖZELLİKLİ) ---
-def optimizasyon_yap(df_temiz, L, testere, kural_aktif, min_fire, max_fire):
-    uzunluklar = df_temiz["Boy (cm)"].tolist()
-    gercek_uzunluklar = [boy + testere for boy in uzunluklar]
-    adetler = df_temiz["Adet"].tolist()
-    
-    Gecerli_Desenler = []
-    
-    def desen_uret(index, mevcut_desen, mevcut_uzunluk):
-        if index == len(gercek_uzunluklar):
-            fire = L - mevcut_uzunluk
-            if fire >= -0.01:
-                if kural_aktif:
-                    if fire <= (min_fire + 0.45) or fire >= (max_fire - 0.45):
-                        Gecerli_Desenler.append(tuple(mevcut_desen))
-                else:
-                    Gecerli_Desenler.append(tuple(mevcut_desen))
-            return
-        
-        max_adet = int((L - mevcut_uzunluk) // gercek_uzunluklar[index])
-        for i in range(max_adet + 1):
-            mevcut_desen.append(i)
-            desen_uret(index + 1, mevcut_desen, mevcut_uzunluk + i * gercek_uzunluklar[index])
-            mevcut_desen.pop()
-
-    desen_uret(0, [], 0.0)
-    
-    if not Gecerli_Desenler:
-        return None, "Girdiğiniz kurallara uygun kesim ihtimali bulunamadı. Lütfen fire kurallarını esnetmeyi deneyin."
-    
-    A_eq = np.array(Gecerli_Desenler).T
-    b_eq = np.array(adetler)
-    
-    # --- TİTİZ TİE-BREAKER (FİRELERİ BİR ARADA TOPLAMA SİSTEMİ) ---
-    c = []
-    for desen in Gecerli_Desenler:
-        mevcut_uzunluk = sum(desen[k] * gercek_uzunluklar[k] for k in range(len(gercek_uzunluklar)))
-        fire = L - mevcut_uzunluk
-        
-        # Temel maliyet 1.0'dır (Profil adedi). Üzerine dağınık fireleri engellemek için mikro ceza ekliyoruz.
-        if kural_aktif:
-            if min_fire < fire < max_fire:
-                ceza = 0.001  # İstenmeyen dağınık ara fire cezası
-            else:
-                ceza = 0.0    # Tam dolu veya devasa sağlam parça bırakanlar ödüllendirilir (cezasız kalır)
-        else:
-            if 5.0 < fire < (L / 2):
-                ceza = 0.001  # Kural kapalıyken bile orta boy boşlukları cezalandırır
-            else:
-                ceza = 0.0
-        c.append(1.0 + ceza)
-        
-    c = np.array(c)
-    
-    constraints_tam = LinearConstraint(A_eq, b_eq, b_eq)
-    res = milp(c=c, constraints=constraints_tam, integrality=np.ones_like(c), bounds=Bounds(0, np.inf), options={'time_limit': 60})
-    
-    cozum_gecerli = False
-    if res.success or (hasattr(res, 'x') and res.x is not None):
-        cozum_gecerli = True
-        cozum = np.round(res.x).astype(int)
-    else:
-        res_esnek = milp(c=c, constraints=LinearConstraint(A_eq, b_eq, np.inf), integrality=np.ones_like(c), bounds=Bounds(0, np.inf))
-        if res_esnek.success:
-            cozum_gecerli = True
-            cozum = np.round(res_esnek.x).astype(int)
-    
-    if cozum_gecerli:
-        kalan_ihtiyac = {uzunluklar[i]: adetler[i] for i in range(len(uzunluklar))}
-        kesim_listesi = []
-        
-        for i, miktar in enumerate(cozum):
-            if miktar > 0:
-                for _ in range(miktar):
-                    profil_kesim = {}
-                    kullanilan_boy = 0
-                    for j, parca_adeti in enumerate(Gecerli_Desenler[i]):
-                        boy = uzunluklar[j]
-                        kesilecek = min(parca_adeti, kalan_ihtiyac[boy])
-                        if kesilecek > 0:
-                            profil_kesim[boy] = kesilecek
-                            kullanilan_boy += kesilecek * gercek_uzunluklar[j]
-                            kalan_ihtiyac[boy] -= kesilecek
-                    
-                    if profil_kesim:
-                        fire = round(L - kullanilan_boy, 1)
-                        kesim_listesi.append({'kesimler': list(profil_kesim.items()), 'fire': fire})
-        
-        return {"toplam_profil": len(kesim_listesi), "kesim_listesi": kesim_listesi}, None
-    else:
-        return None, "Matematiksel bir çözüm bulunamadı. Lütfen sipariş adetlerini kontrol edin."
 
 # --- YAN MENÜ ---
 with st.sidebar:
@@ -459,6 +515,7 @@ with col_kaydet:
             st.warning("Lütfen kaydetmek için bir isim yaz.")
 st.write("---")
 
+# Ekranda aktif bir hesaplama veya buluttan yüklenmiş bir reçete varsa gösterilir
 if st.session_state.aktif_hesap_sonucu is not None:
     receteyi_ekrana_bas(
         st.session_state.aktif_hesap_sonucu["toplam_profil"],
@@ -467,3 +524,21 @@ if st.session_state.aktif_hesap_sonucu is not None:
         st.session_state.set_min,
         st.session_state.set_max
     )
+    
+    # 🚨 YENİ PDF İNDİRME BUTONU PANELİ
+    st.write("")
+    try:
+        pdf_bytes = pdf_recete_olustur(
+            st.session_state.aktif_hesap_sonucu["toplam_profil"],
+            st.session_state.aktif_hesap_sonucu["kesim_listesi"],
+            st.session_state.set_kat
+        )
+        st.download_button(
+            label="🖨️ Kesim Reçetesini PDF Olarak İndir (Çıktı Al)",
+            data=pdf_bytes,
+            file_name=f"kesim_recetesi_{st.session_state.saved_name_val if st.session_state.saved_name_val else 'is'}.pdf",
+            mime="application/pdf",
+            type="secondary"
+        )
+    except Exception as pdf_error:
+        st.error(f"PDF Hazirlanirken hata olustu: {pdf_error}")
