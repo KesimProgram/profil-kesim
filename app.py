@@ -145,8 +145,27 @@ def pdf_recete_olustur(toplam_profil, kesim_listesi, kategori):
     
     pdf.set_font("Helvetica", "", 12)
     pdf.cell(0, 8, txt=tr(f"Toplam Kullanilacak Profil Adedi: {toplam_profil} Adet"), ln=1)
+    
+    # 📊 PDF ÖZET ALANI: Hangi ölçüden toplam kaç adet kesileceğini hesapla ve PDF'e yaz
+    pdf.ln(2)
+    pdf.set_font("Helvetica", "B", 12)
+    pdf.cell(0, 8, txt=tr("Toplam Kesilecek Parca Ozet Listesi:"), ln=1)
+    pdf.set_font("Helvetica", "", 11)
+    
+    toplam_parcalar = {}
+    for p in kesim_listesi:
+        for boy, adet in p['kesimler']:
+            toplam_parcalar[boy] = toplam_parcalar.get(boy, 0) + adet
+            
+    ozet_satirlari = []
+    for boy in sorted(toplam_parcalar.keys()):
+        ozet_satirlari.append(f"{toplam_parcalar[boy]} Adet {boy} cm")
+        
+    pdf.cell(0, 8, txt=tr(" | ".join(ozet_satirlari)), ln=1)
+    pdf.line(10, pdf.get_y() + 2, 200, pdf.get_y() + 2)
     pdf.ln(5)
     
+    # Detaylar Başlığı
     pdf.set_font("Helvetica", "B", 13)
     pdf.cell(0, 10, txt=tr("Profil Kesim Planlama Detaylari:"), ln=1)
     pdf.set_font("Helvetica", "", 11)
@@ -182,7 +201,6 @@ def pdf_recete_olustur(toplam_profil, kesim_listesi, kategori):
         satir = f"- {str_baslik}:  {detay_metni}  (Kalan Fire: {fire} cm)"
         pdf.cell(0, 8, txt=tr(satir), ln=1)
         
-    # 🚨 DÜZELTME: bytearray tipindeki çıktıyı Streamlit için sert 'bytes' formatına çeviriyoruz
     return bytes(pdf.output())
 
 # --- HESAPLAMA MOTORU ---
@@ -316,6 +334,20 @@ def kategori_tetikleyici():
 # --- REÇETE GÖSTERİM FONKSİYONU ---
 def receteyi_ekrana_bas(toplam_profil, kesim_listesi, kural_aktif, min_fire, max_fire):
     st.success(f"✅ Hesaplama Tamam! Toplam Kullanılacak Profil: {toplam_profil} Adet")
+    
+    # 📊 EKRAN ÖZET ALANI: Reçetenin en tepesinde toplam parça dağılımını gösterir
+    st.subheader("📊 Toplam Kesilecek Parça Özet Listesi")
+    toplam_parcalar = {}
+    for p in kesim_listesi:
+        for boy, adet in p['kesimler']:
+            toplam_parcalar[boy] = toplam_parcalar.get(boy, 0) + adet
+            
+    ozet_metinleri = []
+    for boy in sorted(toplam_parcalar.keys()):
+        ozet_metinleri.append(f"**{toplam_parcalar[boy]} Adet {boy} cm**")
+    st.markdown(" | ".join(ozet_metinleri))
+    st.write("---")
+    
     st.subheader("Atölye Kesim Reçetesi")
     
     profil_no = 1
