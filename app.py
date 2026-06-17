@@ -127,7 +127,7 @@ def kayit_sil(isim):
     except Exception as e:
         st.sidebar.error(f"❌ Silme Hatası: {e}")
 
-# --- AKILLI PDF DOSYASI ÜRETİM MOTORU ---
+# --- AKILLI PDF DOSYASI ÜRETİM MOTORU (AKILLI SATIR TAŞIRMA KAKANI) ---
 def pdf_recete_olustur(toplam_profil, kesim_listesi, kategori):
     pdf = FPDF()
     pdf.add_page()
@@ -146,8 +146,8 @@ def pdf_recete_olustur(toplam_profil, kesim_listesi, kategori):
     pdf.set_font("Helvetica", "", 12)
     pdf.cell(0, 8, txt=tr(f"Toplam Kullanilacak Profil Adedi: {toplam_profil} Adet"), ln=1)
     
-    # 📊 PDF ÖZET ALANI: Hangi ölçüden toplam kaç adet kesileceğini hesapla ve PDF'e yaz
-    pdf.ln(2)
+    # 📊 PDF ÖZET ALANI: Akıllı bölünmez blok taşırma sistemi
+    pdf.ln(3)
     pdf.set_font("Helvetica", "B", 12)
     pdf.cell(0, 8, txt=tr("Toplam Kesilecek Parca Ozet Listesi:"), ln=1)
     pdf.set_font("Helvetica", "", 11)
@@ -157,13 +157,25 @@ def pdf_recete_olustur(toplam_profil, kesim_listesi, kategori):
         for boy, adet in p['kesimler']:
             toplam_parcalar[boy] = toplam_parcalar.get(boy, 0) + adet
             
-    ozet_satirlari = []
+    ozet_items = []
     for boy in sorted(toplam_parcalar.keys()):
-        ozet_satirlari.append(f"{toplam_parcalar[boy]} Adet {boy} cm")
+        ozet_items.append(f"{toplam_parcalar[boy]} Adet {boy} cm")
         
-    pdf.cell(0, 8, txt=tr(" | ".join(ozet_satirlari)), ln=1)
-    pdf.line(10, pdf.get_y() + 2, 200, pdf.get_y() + 2)
+    # 🛡️ Adet ve ölçünün ayrı satırlara düşmesini engelleyen akıllı döngü
+    for i, item in enumerate(ozet_items):
+        suffix = " | " if i < len(ozet_items) - 1 else ""
+        blok_metni = item + suffix
+        blok_genislik = pdf.get_string_width(tr(blok_metni))
+        
+        # Sayfa kenar marjı sınırı 195mm'dir. Eğer bu blok sığmayacaksa otomatik alt satıra bük
+        if pdf.get_x() + blok_genislik > 195:
+            pdf.ln(7)
+            
+        pdf.write(7, tr(blok_metni))
+        
     pdf.ln(5)
+    pdf.line(10, pdf.get_y() + 4, 200, pdf.get_y() + 4)
+    pdf.ln(7)
     
     # Detaylar Başlığı
     pdf.set_font("Helvetica", "B", 13)
@@ -199,7 +211,9 @@ def pdf_recete_olustur(toplam_profil, kesim_listesi, kategori):
         detay_metni = " | ".join(kesilecek_parcalar)
         
         satir = f"- {str_baslik}:  {detay_metni}  (Kalan Fire: {fire} cm)"
-        pdf.cell(0, 8, txt=tr(satir), ln=1)
+        
+        # 🛡️ Profil detay satırları da çok uzun olunca sayfadan taşmasın diye multi_cell yapıldı
+        pdf.multi_cell(0, 7, txt=tr(satir))
         
     return bytes(pdf.output())
 
@@ -335,7 +349,6 @@ def kategori_tetikleyici():
 def receteyi_ekrana_bas(toplam_profil, kesim_listesi, kural_aktif, min_fire, max_fire):
     st.success(f"✅ Hesaplama Tamam! Toplam Kullanılacak Profil: {toplam_profil} Adet")
     
-    # 📊 EKRAN ÖZET ALANI: Reçetenin en tepesinde toplam parça dağılımını gösterir
     st.subheader("📊 Toplam Kesilecek Parça Özet Listesi")
     toplam_parcalar = {}
     for p in kesim_listesi:
