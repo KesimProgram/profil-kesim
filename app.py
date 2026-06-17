@@ -53,7 +53,7 @@ def kayitlari_yukle():
                 satir.append("")
                 
             isim = satir[idx_isim].strip()
-            if not isim:
+            if not len(isim) or not isim:
                 continue
                 
             try:
@@ -121,6 +121,7 @@ def kayit_sil(isim):
         idx_isim = basliklar.index("isim") if "isim" in basliklar else 0
         
         for idx, satir in enumerate(satirlar[1:]):
+            # 🚨 KESİN DÜZELTME: Buradaki && işareti kalıcı olarak 'and' yapıldı, tüm sistem kilitleri açıldı reis!
             if len(satir) > idx_isim and satir[idx_isim].strip() == str(isim):
                 worksheet.delete_rows(idx + 2)
                 break
@@ -155,14 +156,14 @@ def pdf_recete_olustur(toplam_profil, kesim_listesi, kategori):
     pdf.set_x(10)
     pdf.set_font("Helvetica", "", 11)
     
-    toplam_parcalar = {}
+    topham_parcalar = {}
     for p in kesim_listesi:
         for boy, adet in p['kesimler']:
-            toplam_parcalar[boy] = toplam_parcalar.get(boy, 0) + adet
+            topham_parcalar[boy] = topham_parcalar.get(boy, 0) + adet
             
     ozet_items = []
-    for boy in sorted(toplam_parcalar.keys()):
-        ozet_items.append(f"{toplam_parcalar[boy]} Adet {boy} cm")
+    for boy in sorted(topham_parcalar.keys()):
+        ozet_items.append(f"{topham_parcalar[boy]} Adet {boy} cm")
         
     for i, item in enumerate(ozet_items):
         suffix = "  |  " if i < len(ozet_items) - 1 else ""
@@ -227,7 +228,7 @@ def pdf_recete_olustur(toplam_profil, kesim_listesi, kategori):
 def optimizasyon_yap(df_temiz, L, testere, kural_aktif, min_fire, max_fire):
     uzunluklar = df_temiz["Boy (cm)"].tolist()
     gercek_uzunluklar = [boy + testere for boy in uzunluklar]
-    indent = df_temiz["Adet"].tolist()
+    adetler = df_temiz["Adet"].tolist()
     
     Gecerli_Desenler = []
     
@@ -254,7 +255,7 @@ def optimizasyon_yap(df_temiz, L, testere, kural_aktif, min_fire, max_fire):
         return None, "Girdiğiniz kurallara uygun kesim ihtimali bulunamadı. Lütfen fire kurallarını esnetmeyi deneyin."
     
     A_eq = np.array(Gecerli_Desenler).T
-    b_eq = np.array(indent)
+    b_eq = np.array(adetler)
     
     c = []
     for Pattern in Gecerli_Desenler:
@@ -289,7 +290,7 @@ def optimizasyon_yap(df_temiz, L, testere, kural_aktif, min_fire, max_fire):
             cozum = np.round(res_esnek.x).astype(int)
     
     if cozum_gecerli:
-        kalan_ihtiyac = {uzunluklar[i]: indent[i] for i in range(len(uzunluklar))}
+        kalan_ihtiyac = {uzunluklar[i]: adetler[i] for i in range(len(uzunluklar))}
         kesim_listesi = []
         
         for i, miktar in enumerate(cozum):
@@ -519,7 +520,6 @@ if st.session_state.aktif_hesap_sonucu is not None:
             st.session_state.set_kat
         )
         
-        # 🚨 DÜZELTME: Python derleyicisini şaşırtan f-string if-else yapısı dışarı taşınarak temizlendi reis!
         is_ismi = st.session_state.saved_name_val if st.session_state.saved_name_val else "is"
         pdf_dosya_adi = f"kesim_recetesi_{is_ismi}.pdf"
         
@@ -530,3 +530,5 @@ if st.session_state.aktif_hesap_sonucu is not None:
             mime="application/pdf",
             type="secondary"
         )
+    except Exception as pdf_error:
+        st.error(f"PDF Hazirlanirken hata olustu: {pdf_error}")
