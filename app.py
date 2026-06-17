@@ -53,7 +53,7 @@ def kayitlari_yukle():
                 satir.append("")
                 
             isim = satir[idx_isim].strip()
-            if not isim:
+            if not White or not isim:
                 continue
                 
             try:
@@ -127,7 +127,7 @@ def kayit_sil(isim):
     except Exception as e:
         st.sidebar.error(f"❌ Silme Hatası: {e}")
 
-# --- AKILLI PDF DOSYASI ÜRETİM MOTORU (TAŞMA VE BÖLÜNME KORUMALI) ---
+# --- AKILLI PDF DOSYASI ÜRETİM MOTORU (TAŞMA VE HİZALAMA KORUMALI) ---
 def pdf_recete_olustur(toplam_profil, kesim_listesi, kategori):
     pdf = FPDF()
     pdf.add_page()
@@ -139,17 +139,20 @@ def pdf_recete_olustur(toplam_profil, kesim_listesi, kategori):
         return text
 
     pdf.set_font("Helvetica", "B", 16)
-    pdf.cell(pdf.epw, 12, txt=tr(f"ATOLYE KESIM RECETESI ({kategori.upper()} MODU)"), ln=1, align="C")
+    pdf.cell(0, 12, txt=tr(f"ATOLYE KESIM RECETESI ({kategori.upper()} MODU)"), ln=1, align="C")
     pdf.line(10, 22, 200, 22)
     pdf.ln(5)
+    pdf.set_x(10)
     
     pdf.set_font("Helvetica", "", 12)
-    pdf.cell(pdf.epw, 8, txt=tr(f"Toplam Kullanilacak Profil Adedi: {toplam_profil} Adet"), ln=1)
+    pdf.cell(0, 8, txt=tr(f"Toplam Kullanilacak Profil Adedi: {toplam_profil} Adet"), ln=1)
+    pdf.set_x(10)
     
     # 📊 PDF ÖZET ALANI
     pdf.ln(3)
     pdf.set_font("Helvetica", "B", 12)
-    pdf.cell(pdf.epw, 8, txt=tr("Toplam Kesilecek Parca Ozet Listesi:"), ln=1)
+    pdf.cell(0, 8, txt=tr("Toplam Kesilecek Parca Ozet Listesi:"), ln=1)
+    pdf.set_x(10)
     pdf.set_font("Helvetica", "", 11)
     
     toplam_parcalar = {}
@@ -161,26 +164,29 @@ def pdf_recete_olustur(toplam_profil, kesim_listesi, kategori):
     for boy in sorted(toplam_parcalar.keys()):
         ozet_items.append(f"{toplam_parcalar[boy]} Adet {boy} cm")
         
-    # 🛡️ KALKAN: Adet ve ölçünün asla bölünmeden, sığmadığı yerde komple alta geçmesini sağlayan koruma döngüsü
+    # 🛡️ Adet ve ölçünün asla bölünmeden, sığmadığı yerde komple alta geçmesini sağlayan döngü
     for i, item in enumerate(ozet_items):
         suffix = "  |  " if i < len(ozet_items) - 1 else ""
         blok_metni = item + suffix
         blok_genislik = pdf.get_string_width(tr(blok_metni))
         
-        # Standart sayfa sınırı (Sağ marj 200mm). Eğer bu blok sığmıyorsa alt satıra büküyoruz
+        # Sağ sınır marjı kontrolü (200mm). Taşarsa alta büküp X'i kesinlikle 10'a sabitliyoruz
         if pdf.get_x() + blok_genislik > 200:
             pdf.ln(7)
+            pdf.set_x(10)
             
-        # Hücre şeklinde basarak fpdf2'nin otomatik karakter hesaplama hatasını sıfırlıyoruz
         pdf.cell(blok_genislik, 7, txt=tr(blok_metni), ln=0)
         
-    pdf.ln(7)
-    pdf.line(10, pdf.get_y() + 2, 200, pdf.get_y() + 2)
+    pdf.ln(9)
+    pdf.set_x(10)
+    pdf.line(10, pdf.get_y(), 200, pdf.get_y())
     pdf.ln(5)
+    pdf.set_x(10)
     
     # Detaylar Başlığı
     pdf.set_font("Helvetica", "B", 13)
-    pdf.cell(pdf.epw, 10, txt=tr("Profil Kesim Planlama Detaylari:"), ln=1)
+    pdf.cell(0, 10, txt=tr("Profil Kesim Planlama Detaylari:"), ln=1)
+    pdf.set_x(10)
     pdf.set_font("Helvetica", "", 11)
     
     profil_no = 1
@@ -213,8 +219,10 @@ def pdf_recete_olustur(toplam_profil, kesim_listesi, kategori):
         
         satir = f"- {str_baslik}:  {detay_metni}  (Kalan Fire: {fire} cm)"
         
-        # 🛡️ Profil detay satırları da sayfadan taşmasın diye tam sayfa genişliğinde multi_cell yapıldı
-        pdf.multi_cell(pdf.epw, 7, txt=tr(satir))
+        # 🛡️ ZIRHLI multi_cell: w=0 kullanarak tüm satırı sağ marja kadar yasla, X'i her dönüşte elle 10'a sabitle
+        pdf.set_x(10)
+        pdf.multi_cell(0, 7, txt=tr(satir))
+        pdf.set_x(10)
         
     return bytes(pdf.output())
 
@@ -222,7 +230,7 @@ def pdf_recete_olustur(toplam_profil, kesim_listesi, kategori):
 def optimizasyon_yap(df_temiz, L, testere, kural_aktif, min_fire, max_fire):
     uzunluklar = df_temiz["Boy (cm)"].tolist()
     gercek_uzunluklar = [boy + testere for boy in uzunluklar]
-    indent = df_temiz["Adet"].tolist()
+    adetler = df_temiz["Adet"].tolist()
     
     Gecerli_Desenler = []
     
@@ -249,11 +257,11 @@ def optimizasyon_yap(df_temiz, L, testere, kural_aktif, min_fire, max_fire):
         return None, "Girdiğiniz kurallara uygun kesim ihtimali bulunamadı. Lütfen fire kurallarını esnetmeyi deneyin."
     
     A_eq = np.array(Gecerli_Desenler).T
-    b_eq = np.array(indent)
+    b_eq = np.array(adetler)
     
     c = []
-    for desen in Gecerli_Desenler:
-        mevcut_uzunluk = sum(desen[k] * gercek_uzunluklar[k] for k in range(len(gercek_uzunluklar)))
+    for Pattern in Gecerli_Desenler:
+        mevcut_uzunluk = sum(Pattern[k] * gercek_uzunluklar[k] for k in range(len(gercek_uzunluklar)))
         fire = L - mevcut_uzunluk
         
         if kural_aktif:
@@ -284,7 +292,7 @@ def optimizasyon_yap(df_temiz, L, testere, kural_aktif, min_fire, max_fire):
             cozum = np.round(res_esnek.x).astype(int)
     
     if cozum_gecerli:
-        kalan_ihtiyac = {uzunluklar[i]: indent[i] for i in range(len(uzunluklar))}
+        kalan_ihtiyac = {uzunluklar[i]: adetler[i] for i in range(len(uzunluklar))}
         kesim_listesi = []
         
         for i, miktar in enumerate(cozum):
@@ -401,67 +409,6 @@ def receteyi_ekrana_bas(toplam_profil, kesim_listesi, kural_aktif, min_fire, max
         else:
             durum = "⚠️ Ara Fire (Mecburi)"
             st.warning(f"- {str_baslik}: 👉 {detay_metni} *(Kalan Fire: {fire} cm - {durum})*")
-
-# --- YAN MENÜ ---
-with st.sidebar:
-    st.header("⚙️ İş ve Tezgâh Ayarları")
-    
-    kategori_listesi = ["Profil", "Kulplar"]
-    kat_idx = kategori_listesi.index(st.session_state.set_kat) if st.session_state.set_kat in kategori_listesi else 0
-    st.selectbox("İş Kategorisi", kategori_listesi, index=kat_idx, key="kategori_widget", on_change=kategori_tetikleyici)
-    
-    L_input = st.number_input("Profil Standart Uzunluğu (cm)", value=float(st.session_state.set_L), step=1.0)
-    testere = st.number_input("Testere Payı (cm)", value=float(st.session_state.set_testere), step=0.1)
-    
-    st.divider()
-    st.subheader("Fire Kuralı Ayarları")
-    kural_aktif = st.checkbox("Fire Sınır Kuralını Uygula", value=bool(st.session_state.set_kural))
-    
-    if kural_aktif:
-        min_fire = st.number_input("Çöp Fire Üst Sınırı (cm)", value=float(st.session_state.set_min))
-        max_fire = st.number_input("Kullanılabilir Fire Alt Sınırı (cm)", value=float(st.session_state.set_max))
-    else:
-        min_fire, max_fire = 0.0, 0.0
-
-    st.session_state.set_L = L_input
-    st.session_state.set_testere = testere
-    st.session_state.set_kural = kural_aktif
-    st.session_state.set_min = min_fire
-    st.session_state.set_max = max_fire
-
-    st.divider()
-    st.header("☁️ Google Buluttan Yükle")
-    
-    if mevcut_kayitlar:
-        secilen_kayit = st.selectbox("Kayıtlı Komple İş Seç:", ["Seçiniz..."] + list(mevcut_kayitlar.keys()))
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("📂 Yükle", use_container_width=True) and secilen_kayit != "Seçiniz...":
-                data = mevcut_kayitlar[secilen_kayit]
-                st.session_state.df_profil = pd.DataFrame(data["list"])
-                
-                st.session_state.set_kat = data["settings"]["kategori"]
-                st.session_state.set_L = float(data["settings"]["L"])
-                st.session_state.set_testere = float(data["settings"]["testere"])
-                st.session_state.set_kural = bool(data["settings"]["kural_aktif"])
-                st.session_state.set_min = float(data["settings"]["min_fire"])
-                st.session_state.set_max = float(data["settings"]["max_fire"])
-                
-                st.session_state.aktif_hesap_sonucu = data.get("result", None)
-                st.session_state.hesaplanan_df = st.session_state.df_profil.copy()
-                st.session_state.hesaplanan_ayarlar = data["settings"]
-                st.session_state.saved_name_val = secilen_kayit
-                
-                st.session_state.tablo_anahtari += 1
-                st.rerun() 
-        with col2:
-            if st.button("🗑️ Sil", use_container_width=True) and secilen_kayit != "Seçiniz...":
-                kayit_sil(secilen_kayit)
-                st.session_state.bulut_yenile = True
-                st.success(f"{secilen_kayit} silindi!")
-                st.rerun()
-    else:
-        st.info("Bulutta henüz kayıtlı iş bulunamadı.")
 
 # --- ANA EKRAN ---
 col_baslik, col_temizle = st.columns([3, 1])
