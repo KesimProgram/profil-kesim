@@ -132,25 +132,21 @@ def pdf_recete_olustur(toplam_profil, kesim_listesi, kategori):
     pdf = FPDF()
     pdf.add_page()
     
-    # PDF standart fontlarda Türkçe karakter hatası vermesin diye kelime temizleyici kalkan
     def tr(text):
         rep = {"ç":"c", "ğ":"g", "ı":"i", "ö":"o", "ş":"s", "ü":"u", "Ç":"C", "Ğ":"G", "İ":"I", "Ö":"O", "Ş":"S", "Ü":"U"}
         for k, v in rep.items():
             text = text.replace(k, v)
         return text
 
-    # Başlık Alanı
     pdf.set_font("Helvetica", "B", 16)
     pdf.cell(0, 12, txt=tr(f"ATOLYE KESIM RECETESI ({kategori.upper()} MODU)"), ln=1, align="C")
     pdf.line(10, 22, 200, 22)
     pdf.ln(5)
     
-    # Özet Bilgiler
     pdf.set_font("Helvetica", "", 12)
     pdf.cell(0, 8, txt=tr(f"Toplam Kullanilacak Profil Adedi: {toplam_profil} Adet"), ln=1)
     pdf.ln(5)
     
-    # Detaylar Başlığı
     pdf.set_font("Helvetica", "B", 13)
     pdf.cell(0, 10, txt=tr("Profil Kesim Planlama Detaylari:"), ln=1)
     pdf.set_font("Helvetica", "", 11)
@@ -186,13 +182,14 @@ def pdf_recete_olustur(toplam_profil, kesim_listesi, kategori):
         satir = f"- {str_baslik}:  {detay_metni}  (Kalan Fire: {fire} cm)"
         pdf.cell(0, 8, txt=tr(satir), ln=1)
         
-    return pdf.output()
+    # 🚨 DÜZELTME: bytearray tipindeki çıktıyı Streamlit için sert 'bytes' formatına çeviriyoruz
+    return bytes(pdf.output())
 
 # --- HESAPLAMA MOTORU ---
 def optimizasyon_yap(df_temiz, L, testere, kural_aktif, min_fire, max_fire):
     uzunluklar = df_temiz["Boy (cm)"].tolist()
     gercek_uzunluklar = [boy + testere for boy in uzunluklar]
-    adetler = df_temiz["Adet"].tolist()
+    indent = df_temiz["Adet"].tolist()
     
     Gecerli_Desenler = []
     
@@ -219,7 +216,7 @@ def optimizasyon_yap(df_temiz, L, testere, kural_aktif, min_fire, max_fire):
         return None, "Girdiğiniz kurallara uygun kesim ihtimali bulunamadı. Lütfen fire kurallarını esnetmeyi deneyin."
     
     A_eq = np.array(Gecerli_Desenler).T
-    b_eq = np.array(adetler)
+    b_eq = np.array(indent)
     
     c = []
     for desen in Gecerli_Desenler:
@@ -254,7 +251,7 @@ def optimizasyon_yap(df_temiz, L, testere, kural_aktif, min_fire, max_fire):
             cozum = np.round(res_esnek.x).astype(int)
     
     if cozum_gecerli:
-        kalan_ihtiyac = {uzunluklar[i]: adetler[i] for i in range(len(uzunluklar))}
+        kalan_ihtiyac = {uzunluklar[i]: indent[i] for i in range(len(uzunluklar))}
         kesim_listesi = []
         
         for i, miktar in enumerate(cozum):
@@ -515,7 +512,6 @@ with col_kaydet:
             st.warning("Lütfen kaydetmek için bir isim yaz.")
 st.write("---")
 
-# Ekranda aktif bir hesaplama veya buluttan yüklenmiş bir reçete varsa gösterilir
 if st.session_state.aktif_hesap_sonucu is not None:
     receteyi_ekrana_bas(
         st.session_state.aktif_hesap_sonucu["toplam_profil"],
@@ -525,7 +521,6 @@ if st.session_state.aktif_hesap_sonucu is not None:
         st.session_state.set_max
     )
     
-    # 🚨 YENİ PDF İNDİRME BUTONU PANELİ
     st.write("")
     try:
         pdf_bytes = pdf_recete_olustur(
