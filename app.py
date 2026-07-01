@@ -301,7 +301,7 @@ def optimizasyon_yap(df_temiz, L, testere, kural_aktif, min_fire, max_fire):
     c = np.array(c)
     
     constraints_tam = LinearConstraint(A_eq, b_eq, b_eq)
-    res = milp(c=c, constraints=constraints_tam, integrality=np.ones_like(c), bounds=Bounds(0, np.inf), options={'time_limit': 60})
+    res = milp(c=c, constraints=constraints_tam, integrality=np.ones_like(c), bounds=Bounds(0, np.inf), options={'time_limit': 180})
     
     cozum_gecerli = False
     if res.success or (hasattr(res, 'x') and res.x is not None):
