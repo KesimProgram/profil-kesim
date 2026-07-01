@@ -128,7 +128,7 @@ def kayit_sil(isim):
         st.sidebar.error(f"❌ Silme Hatası: {e}")
 
 # --- AKILLI PDF DOSYASI ÜRETİM MOTORU ---
-def pdf_recete_olustur(toplam_profil, kesim_listesi, kategori):
+def pdf_recete_olustur(toplam_profil, kesim_listesi, kategori, L):
     pdf = FPDF()
     pdf.add_page()
     
@@ -144,8 +144,12 @@ def pdf_recete_olustur(toplam_profil, kesim_listesi, kategori):
     pdf.ln(5)
     pdf.set_x(10)
     
+    # 🎯 Genel Verimlilik Hesabı
+    toplam_fire = sum(p['fire'] for p in kesim_listesi)
+    genel_verim = ((toplam_profil * L - toplam_fire) / (toplam_profil * L)) * 100 if toplam_profil > 0 else 0
+    
     pdf.set_font("Helvetica", "", 12)
-    pdf.cell(0, 8, txt=tr(f"Toplam Kullanilacak Profil Adedi: {toplam_profil} Adet"), ln=1)
+    pdf.cell(0, 8, txt=tr(f"Toplam Kullanilacak Profil: {toplam_profil} Adet   |   Genel Verimlilik: %{genel_verim:.1f}"), ln=1)
     pdf.set_x(10)
     
     # 📊 PDF ÖZET ALANI
@@ -214,7 +218,6 @@ def pdf_recete_olustur(toplam_profil, kesim_listesi, kategori):
         for boy, adet in kesimler:
             kesilecek_parcalar.append(f"{adet} adet {boy} cm")
             
-        # 🚨 BURASI GÜNCELLENDİ: Bölünmez Blok Kalkanı
         baslik_metni = f"- {str_baslik}:  "
         pdf.set_x(10)
         
@@ -229,26 +232,25 @@ def pdf_recete_olustur(toplam_profil, kesim_listesi, kategori):
             blok_metni = parca + suffix
             blok_w = pdf.get_string_width(tr(blok_metni))
             
-            # Eğer bu blok (adet + ölçü) sağ kenara sığmıyorsa, bölmeden bir alt satıra at.
             if pdf.get_x() + blok_w > 200:
                 pdf.ln(7)
-                pdf.set_x(14) # Alt satıra geçince okunabilirliği artırmak için hafif girinti (indent)
+                pdf.set_x(14)
                 
             pdf.cell(blok_w, 7, txt=tr(blok_metni), ln=0)
             
-        # Fire metnini de aynı mantıkla taşırma yapmadan ekliyoruz
-        fire_metni = f"(Kalan Fire: {fire} cm)"
+        verim = ((L - fire) / L) * 100
+        fire_metni = f"(Kalan Fire: {fire} cm  -  Verim: %{verim:.1f})"
         fire_w = pdf.get_string_width(tr(fire_metni))
         if pdf.get_x() + fire_w > 200:
             pdf.ln(7)
             pdf.set_x(14)
         pdf.cell(fire_w, 7, txt=tr(fire_metni), ln=0)
         
-        pdf.ln(7) # Diğer profile geçmek için satır atla
+        pdf.ln(7) 
         
     return bytes(pdf.output())
 
-# --- HESAPLAMA MOTORU ---
+# --- HESAPLAMA MOTORU (Mıknatıs Fire Sistemi & 180 Sn Sınır) ---
 def optimizasyon_yap(df_temiz, L, testere, kural_aktif, min_fire, max_fire):
     uzunluklar = df_temiz["Boy (cm)"].tolist()
     gercek_uzunluklar = [boy + testere for boy in uzunluklar]
@@ -286,21 +288,17 @@ def optimizasyon_yap(df_temiz, L, testere, kural_aktif, min_fire, max_fire):
         mevcut_uzunluk = sum(Pattern[k] * gercek_uzunluklar[k] for k in range(len(gercek_uzunluklar)))
         fire = L - mevcut_uzunluk
         
-        if kural_aktif:
-            if min_fire < fire < max_fire:
-                ceza = 0.001 
-            else:
-                ceza = 0.0   
+        if fire <= 0.5:
+            ceza = 0.0
         else:
-            if 5.0 < fire < (L / 2):
-                ceza = 0.001 
-            else:
-                ceza = 0.0
+            ceza = 0.001
+            
         c.append(1.0 + ceza)
         
     c = np.array(c)
     
     constraints_tam = LinearConstraint(A_eq, b_eq, b_eq)
+    # ⏳ SÜRE 180 SANİYEYE (3 DAKİKA) ÇIKARILDI!
     res = milp(c=c, constraints=constraints_tam, integrality=np.ones_like(c), bounds=Bounds(0, np.inf), options={'time_limit': 180})
     
     cozum_gecerli = False
@@ -308,7 +306,7 @@ def optimizasyon_yap(df_temiz, L, testere, kural_aktif, min_fire, max_fire):
         cozum_gecerli = True
         cozum = np.round(res.x).astype(int)
     else:
-        res_esnek = milp(c=c, constraints=LinearConstraint(A_eq, b_eq, np.inf), integrality=np.ones_like(c), bounds=Bounds(0, np.inf))
+        res_esnek = milp(c=c, constraints=LinearConstraint(A_eq, b_eq, np.inf), integrality=np.ones_like(c), bounds=Bounds(0, np.inf), options={'time_limit': 180})
         if res_esnek.success:
             cozum_gecerli = True
             cozum = np.round(res_esnek.x).astype(int)
@@ -377,8 +375,10 @@ def kategori_tetikleyici():
         st.session_state.set_max = 30.0
 
 # --- REÇETE GÖSTERİM FONKSİYONU ---
-def receteyi_ekrana_bas(toplam_profil, kesim_listesi, kural_aktif, min_fire, max_fire):
-    st.success(f"✅ Hesaplama Tamam! Toplam Kullanılacak Profil: {toplam_profil} Adet")
+def receteyi_ekrana_bas(toplam_profil, kesim_listesi, kural_aktif, min_fire, max_fire, L):
+    toplam_fire = sum(p['fire'] for p in kesim_listesi)
+    genel_verim = ((toplam_profil * L - toplam_fire) / (toplam_profil * L)) * 100 if toplam_profil > 0 else 0
+    st.success(f"✅ Hesaplama Tamam! Toplam Kullanılacak Profil: {toplam_profil} Adet | 🎯 Genel Verimlilik: %{genel_verim:.1f}")
     
     st.subheader("📊 Toplam Kesilecek Parça Özet Listesi")
     topham_parcalar = {}
@@ -422,15 +422,17 @@ def receteyi_ekrana_bas(toplam_profil, kesim_listesi, kural_aktif, min_fire, max
             kesilecek_parcalar.append(f"{adet} adet {boy} cm")
         detay_metni = " | ".join(kesilecek_parcalar)
         
+        verim = ((L - fire) / L) * 100
+        
         if kural_aktif and fire >= max_fire:
-            durum = "♻️ Sağlam Parça (Geri Kullanılan)"
-            st.info(f"- {str_baslik}: 👉 {detay_metni} *(Kalan Fire: {fire} cm - {durum})*")
+            durum = "♻️ Sağlam Parça (Geri Kullanılabilir)"
+            st.info(f"- {str_baslik}: 👉 {detay_metni} *(Kalan Fire: {fire} cm  |  Verim: %{verim:.1f}  |  {durum})*")
         elif kural_aktif and fire <= min_fire:
             durum = "🗑️ Çöp Fire"
-            st.markdown(f"- {str_baslik}: 👉 {detay_metni} *(Kalan Fire: {fire} cm - {durum})*")
+            st.markdown(f"- {str_baslik}: 👉 {detay_metni} *(Kalan Fire: {fire} cm  |  Verim: %{verim:.1f}  |  {durum})*")
         else:
             durum = "⚠️ Ara Fire (Mecburi)"
-            st.warning(f"- {str_baslik}: 👉 {detay_metni} *(Kalan Fire: {fire} cm - {durum})*")
+            st.warning(f"- {str_baslik}: 👉 {detay_metni} *(Kalan Fire: {fire} cm  |  Verim: %{verim:.1f}  |  {durum})*")
 
 # --- YAN MENÜ ---
 with st.sidebar:
@@ -518,15 +520,21 @@ with col_hesap:
         if df_temiz.empty:
             st.warning("Lütfen tabloya en az bir geçerli ölçü ve adet girin.")
         else:
-            with st.spinner("Motor hesaplıyor..."):
+            # 🚨 DÜZELTME: Animasyonlu, bilgilendirici Yükleme Çubuğu eklendi!
+            with st.status("⚙️ Algoritma en iyi fire kombinasyonunu hesaplıyor...", expanded=True) as status:
+                st.write("🔍 İhtimaller ve desenler taranıyor...")
+                st.write("⏳ Derin analiz devrede (Zorlu kesimlerde 180 saniyeye kadar sürebilir, lütfen bekleyin)...")
+                
                 sonuc, hata = optimizasyon_yap(
                     df_temiz, st.session_state.set_L, st.session_state.set_testere, 
                     st.session_state.set_kural, st.session_state.set_min, st.session_state.set_max
                 )
                 if hata:
+                    status.update(label="❌ Hesaplama Başarısız", state="error", expanded=True)
                     st.error(hata)
                     st.session_state.aktif_hesap_sonucu = None
                 else:
+                    status.update(label="✅ Optimum fire kombinasyonu bulundu!", state="complete", expanded=False)
                     st.session_state.aktif_hesap_sonucu = sonuc
                     st.session_state.hesaplanan_df = df_temiz.copy()
                     st.session_state.hesaplanan_ayarlar = {
@@ -559,8 +567,11 @@ with col_kaydet:
                 if st.session_state.hesaplanan_ayarlar != guncel_ayarlar:
                     degisti_mi = True
 
-                with st.spinner("Google Buluta gönderiliyor..."):
+                # 🚨 DÜZELTME: Kayıt ve Hesaplama aşaması için animasyonlu bilgilendirme
+                with st.status("☁️ Bulut ve Algoritma Motoru Çalışıyor...", expanded=True) as status:
                     if degisti_mi or st.session_state.aktif_hesap_sonucu is None:
+                        st.write("⚙️ Algoritma en iyi fire kombinasyonunu hesaplıyor, lütfen bekleyin...")
+                        st.write("⏳ Derin analiz devrede (Zorlu kesimlerde 180 saniyeye kadar sürebilir)...")
                         sonuc, hata = optimizasyon_yap(
                             df_gecerli, st.session_state.set_L, st.session_state.set_testere, 
                             st.session_state.set_kural, st.session_state.set_min, st.session_state.set_max
@@ -568,12 +579,15 @@ with col_kaydet:
                         st.session_state.hesaplanan_df = df_gecerli.copy()
                         st.session_state.hesaplanan_ayarlar = guncel_ayarlar
                     else:
+                        st.write("⚙️ Hesaplama önbellekten hızlıca çekiliyor...")
                         sonuc = st.session_state.aktif_hesap_sonucu
                         hata = None
 
                     if hata:
+                        status.update(label="❌ Kayıt Başarısız", state="error", expanded=True)
                         st.error(f"Hesaplama hatası nedeniyle kaydedilemedi: {hata}")
                     else:
+                        st.write("💾 Sonuçlar Google Bulut veritabanına kilitleniyor...")
                         st.session_state.aktif_hesap_sonucu = sonuc
                         paket_veri = {
                             "list": df_gecerli.to_dict('records'),
@@ -582,6 +596,7 @@ with col_kaydet:
                         }
                         kayit_ekle(kayit_ismi, paket_veri)
                         st.session_state.bulut_yenile = True
+                        status.update(label="✅ Veriler Google Drive bulutuna başarıyla kilitlendi!", state="complete", expanded=False)
                         st.success("✅ Tebrikler! Veriler kalıcı olarak Google Drive bulutuna kilitlendi!")
                         st.rerun()
         else:
@@ -594,7 +609,8 @@ if st.session_state.aktif_hesap_sonucu is not None:
         st.session_state.aktif_hesap_sonucu["kesim_listesi"],
         st.session_state.set_kural,
         st.session_state.set_min,
-        st.session_state.set_max
+        st.session_state.set_max,
+        st.session_state.set_L
     )
     
     st.write("")
@@ -602,7 +618,8 @@ if st.session_state.aktif_hesap_sonucu is not None:
         pdf_bytes = pdf_recete_olustur(
             st.session_state.aktif_hesap_sonucu["toplam_profil"],
             st.session_state.aktif_hesap_sonucu["kesim_listesi"],
-            st.session_state.set_kat
+            st.session_state.set_kat,
+            st.session_state.set_L
         )
         
         is_ismi = st.session_state.saved_name_val if st.session_state.saved_name_val else "is"
